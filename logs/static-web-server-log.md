@@ -141,7 +141,7 @@ NginxでのHTTP設定
 
 - パッケージマネージャーのsnap coreインストール
 - ↑を使ってcertbotインストール
-- binディレクトリにcertbotへのシンボリックリンク作成　`sudo sudo ln -s /snap/bin/certbot /usr/bin/certbot`
+- binディレクトリにcertbotへのシンボリックリンク作成　`sudo ln -s /snap/bin/certbot /usr/bin/certbot`
 
 - `sudo certbot --nginx -d deepsea.{your_domein}.com`
 - →画面の案内にしたがっていくと証明書と秘密鍵が生成される
@@ -168,3 +168,62 @@ Congratulations, all simulated renewals succeeded:
 /etc/letsencrypt/live/deepsea.kano.wiki/fullchain.pem (success)
 
 ↑証明書の自動更新スクリプトは機能している
+
+---
+
+1/25
+
+Resume Site（仮）デプロイ
+
+デプロイ方法の復習として、仮のportfolioプロジェクトデプロイ手順をもう一回やる
+
+- sudo mkdir -p /var/www/project-protfolio/public
+- 現在のユーザーに権限渡す　sudo chown -R $USER:USER /var/www/project-portfolio/public
+- シンボリックリンク作成　`sudo ln -s ~/web/portfolio /var/www/project-portfolio/public`
+- nginxアクセス権限設定　chmod 755 /home/ubuntu
+- シンボリックリンク確認　ls -l /var/www/project-portfolio/public と ls -l /var/www/project-portfolio/public/portfolio/
+- ポートフォリオサイト用の新しいリポジトリを作って、resume.kano.wiki用の設定ファイルを/etc/nginx/sites-available/に作成する
+
+前回と同じく静的ページのみ公開でもよかったけど、Next.jsプロジェクトの公開を試してみる
+
+[Next.jsプロジェクトをNginxで公開（参考記事）](https://dev.to/j3rry320/deploy-your-nextjs-app-like-a-pro-a-step-by-step-guide-using-nginx-pm2-certbot-and-git-on-your-linux-server-3286)
+
+```
+server {
+        server_name portfolio.kano.wiki www.portfolio.kano.wiki;
+
+        location / {
+                proxy_pass http://localhost:3000;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+        }
+
+    listen 443 ssl; # managed by Certbot
+    ssl_certificate /etc/letsencrypt/live/portfolio.kano.wiki/fullchain.pem; # managed by Certbot
+    ssl_certificate_key /etc/letsencrypt/live/portfolio.kano.wiki/privkey.pem; # managed by Cert>
+    include /etc/letsencrypt/options-ssl-nginx.conf; # managed by Certbot
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem; # managed by Certbot
+
+}
+server {
+    if ($host = portfolio.kano.wiki) {
+        return 301 https://$host$request_uri;
+    } # managed by Certbot
+
+        listen 80;
+        server_name portfolio.kano.wiki www.portfolio.kano.wiki;
+    return 404; # managed by Certbot
+
+}
+
+```
+
+様々な記事で、pm2によるNodeサーバーの永続化（デーモン化）について触れられていた。後々深く調べる。
+
+[解説してる記事](https://choippo.com/nextjs-pm2/)
+
+create next app直後の段階で一旦公開テスト
+
+表示できた
+
+https://portfolio.kano.wiki/
