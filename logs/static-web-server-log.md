@@ -1,4 +1,6 @@
-# 作業ログ: Static Web Server
+# 作業ログ：Static Web Server（Resume Site）
+
+[参考記事](https://choippo.com/nextjs-pm2/)
 
 2024.1.23
 
@@ -182,7 +184,7 @@ Resume Site（仮）デプロイ
 - シンボリックリンク作成　`sudo ln -s ~/web/portfolio /var/www/project-portfolio/public`
 - nginxアクセス権限設定　chmod 755 /home/ubuntu
 - シンボリックリンク確認　ls -l /var/www/project-portfolio/public と ls -l /var/www/project-portfolio/public/portfolio/
-- ポートフォリオサイト用の新しいリポジトリを作って、resume.kano.wiki用の設定ファイルを/etc/nginx/sites-available/に作成する
+- ポートフォリオサイト用の新しいリポジトリを作って、portfolio.kano.wiki用の設定ファイルを/etc/nginx/sites-available/に作成する
 
 前回と同じく静的ページのみ公開でもよかったけど、Next.jsプロジェクトの公開を試してみる
 
@@ -190,6 +192,8 @@ Resume Site（仮）デプロイ
 - pm2でアプリを起動させて永続化　`pm2 start npm —name “portfolio” — start`
 
 [Next.jsプロジェクトをNginxで公開（参考記事）](https://dev.to/j3rry320/deploy-your-nextjs-app-like-a-pro-a-step-by-step-guide-using-nginx-pm2-certbot-and-git-on-your-linux-server-3286)
+
+`/etc/nginx/sites-available/portfolio`
 
 ```
 server {
@@ -229,7 +233,7 @@ create next app直後の段階で一旦公開テスト
 
 表示できた
 
-https://portfolio.kano.wiki/
+[https://portfolio.kano.wiki/](https://portfolio.kano.wiki/)
 
 ---
 
@@ -348,7 +352,7 @@ export default Works
 
 `npm run build`
 
-https://portfolio.kano.wiki/works
+[https://portfolio.kano.wiki/works](https://portfolio.kano.wiki/works)
 
 pm2で起動したアプリも再起動
 
