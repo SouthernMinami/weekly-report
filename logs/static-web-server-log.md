@@ -186,6 +186,9 @@ Resume Site（仮）デプロイ
 
 前回と同じく静的ページのみ公開でもよかったけど、Next.jsプロジェクトの公開を試してみる
 
+- 本番環境にリポジトリをpull後、`npm run build`でデプロイ
+- pm2でアプリを起動させて永続化　`pm2 start npm —name “portfolio” — start`
+
 [Next.jsプロジェクトをNginxで公開（参考記事）](https://dev.to/j3rry320/deploy-your-nextjs-app-like-a-pro-a-step-by-step-guide-using-nginx-pm2-certbot-and-git-on-your-linux-server-3286)
 
 ```
@@ -227,3 +230,126 @@ create next app直後の段階で一旦公開テスト
 表示できた
 
 https://portfolio.kano.wiki/
+
+---
+
+1/30
+
+しばらくEC2インスタンスを停止していた状態から作業再開
+
+*パブリックIPアドレスは前回と別のものに割り当てられているので、dnsとfilezillaの設定からポート番号を新しく変える必要がある
+
+目標：ポートフォリオをWorksページに掲載、変更後に手動で再デプロイ
+
+- portfolio.jsonから制作物一覧を取得してカードを表示
+
+`public/portfolio.json`
+
+```json
+[
+  {
+    "id": 1,
+    "title": "Burger Shop Game / バーガーショップゲーム",
+    "summary": "バーガーショップでの販売を体験できるクリッカーゲームです。",
+    "content": "Burger Shop Gameは、バーガーショップでハンバーガーを販売してお金を稼ぐことでバーガーショップ店員の体験ができる、暇つぶしにちょうどいいクリッカーゲームです。",
+    "url": "https://southernminami.github.io/BurgerShopGame/src/index.html",
+    "github": "https://github.com/SouthernMinami/BurgerShopGame",
+    "thumbnail": "/assets/burger-shop-game.png",
+    "date": "2024-01-27T00:00:00"
+  },
+  {
+    "id": 2,
+    "title": "Playing Card / トランプゲーム",
+    "summary": "4つのゲームモードで遊べるシンプルなトランプゲームです",
+    "content": "Playing Cardは、4つのトランプゲームで遊べるシンプルなトランプゲームです。\n\nこのツールの開発に当たっては、バックエンドとフロントエンドの両方を私一人で担当しました。バックエンドはNode.jsとExpressを使用し、フロントエンドはReact.jsで構築しました。データベースにはMongoDBを用い、ユーザーデータと金融データの管理を行いました。\n\nBudgetMasterはウェブ上で公開され、多くのユーザーから肯定的なフィードバックを得ています。特に、インターフェースの使いやすさと、予算追跡の明確さがユーザーから好評を博しています。このプロジェクトを通じて、私はデータ駆動型のユーザーインターフェースの設計と、セキュアなユーザーデータの管理について深く学ぶことができました。",
+    "url": "https://github.com/",
+    "github": "https://github.com/SouthernMinami/BurgerShopGame",
+    "thumbnail": "/assets/playing-card.png",
+    "date": "2024-01-27T00:00:00"
+  },
+  {
+    "id": 3,
+    "title": "Markdown Converter / mdファイル変換スクリプト",
+    "summary": "mdファイルをHTMLファイルに変換するPythonスクリプトです。",
+    "content": "Markdown Converterは、mdファイルをHTMLファイルに変換するPythonスクリプトです。このスクリプトは、mdファイルをHTMLファイルに変換するだけでなく、mdファイルの内容を解析して、HTMLファイルに適切なタイトル、サブタイトル、段落、リスト、画像、リンクを挿入します。\n\nこのスクリプトの開発には、Pythonを使用してmdファイルを解析し、HTMLファイルに変換する方法を学びました。また、このプロジェクトを通じて、私はPythonの基本的な構文と、ファイルの読み書きについて学ぶことができました。",
+    "url": "https://github.com/SouthernMinami/MarkdownConverter",
+    "github": "https://github.com/SouthernMinami/MarkdownConverter",
+    "thumbnail": "/assets/markdown-converter.png",
+    "date": "2024-01-27T00:00:00"
+  },
+  {
+    "id": 4,
+    "title": "Online Chat Messenger / ターミナル上のチャットアプリ",
+    "summary": "ターミナル上で動作するチャットアプリです。",
+    "content": "Online Chat Messengerは、ターミナル上で動作するチャットアプリです。このアプリは、サーバーとクライアントの2つのプログラムで構成されています。サーバーは、クライアントからの接続を待ち受け、クライアントはサーバーに接続してメッセージを送受信します。\n\nこのアプリの開発には、Pythonのソケットプログラミングを使用しました。このプロジェクトを通じて、私はPythonのソケットプログラミングについて学ぶことができました。",
+    "url": "https://github.com/Recursion-BackendNovice-TeamA/TeamDev-OnlineChatMessenger",
+    "github": "https://github.com/Recursion-BackendNovice-TeamA/TeamDev-OnlineChatMessenger",
+    "thumbnail": "/assets/online-chat-messenger.png",
+    "date": "2024-01-27T00:00:00"
+  },
+  {
+    "id": 5,
+    "title": "Audio Visualizer / オーディオビジュアライザー",
+    "summary": "TouchDesignerを使用して作成したオーディオビジュアライザーです。",
+    "content": "Audio Visualizerは、TouchDesignerを使用して作成したオーディオビジュアライザーです。このビジュアライザーは、音楽ファイルを読み込んで、音楽の波形を可視化します。\n\nこのプロジェクトを通じて、私はTouchDesignerの基本的な機能と、音楽の波形を可視化する方法を学ぶことができました。",
+    "url": "",
+    "github": "",
+    "thumbnail": "/assets/audio-visualizer.png",
+    "date": "2023-05-30T00:00:00"
+  }
+]
+```
+
+`works/page.jsx`
+
+```tsx
+'use client'
+
+import { useEffect, useState } from 'react'
+import { Card } from '../components/elements/Card'
+
+const Works = () => {
+  const [works, setWorks] = useState([])
+
+  useEffect(() => {
+    const xhr = new XMLHttpRequest()
+
+    xhr.open('GET', 'portfolio.json')
+    xhr.onload = () => {
+      if (xhr.status === 200) {
+        setWorks(JSON.parse(xhr.response))
+      } else {
+        console.error('データの取得に失敗しました。')
+      }
+    }
+    xhr.send()
+  }, [])
+
+  return (
+    <div>
+      <div className="flex flex-col items-center justify-center p-4">
+        <h1 className="text-3xl">Works</h1>
+      </div>
+      <ul className="flex flex-wrap justify-center">
+        {works.map((work, index) => {
+          return <Card key={index} work={work} />
+        })}
+      </ul>
+    </div>
+  )
+}
+
+export default Works
+```
+
+- サイトの更新は自動化したりしてないので、push後また手動でbuild
+
+`git pull`
+
+`npm run build`
+
+https://portfolio.kano.wiki/works
+
+pm2で起動したアプリも再起動
+
+`pm2 restart portfolio`
