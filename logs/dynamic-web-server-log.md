@@ -812,20 +812,63 @@ monacoエディタとPlant UMLでUML図作成アプリ作る
 
 機能要件
 
-- ユースケース、クラス図、アクティビティ図、状態図、マインドマップ、ガントチャートをエディタからPlantUML構文で作れるようにする
-- 変更後すぐに反映されるプレビュー
-- .png, .svg, .txtのダウンロード機能
-- Plant UML構文のチートシートページ
-- 図作成の課題問題を用意する　JSON形式で作成してそれを読み取る
-- 課題ページとは別のプレイグランドページも用意
+- [x]  ユースケース、クラス図、アクティビティ図、状態図、マインドマップ、ガントチャートをエディタからPlantUML構文で作れるようにする
+- [x]  変更後すぐに反映されるプレビュー
+- [x]  .png, .svg, .txtのダウンロード機能
+- [x]  UML構文のチートシートページ
+- [x]  図作成の課題問題を用意する　JSON形式で作成してそれを読み取る
+- [x]  課題ページとは別のプレイグランドページも用意
 
 非機能要件
 
-- 将来的にいろんな種類の図表作成に対応できるように拡張性を持たせる　OOP
-- ↑具体的には、問題の種類とダウンロードできるファイル形式の種類
-- 作成済みの使わなくなったファイルは削除するようにしてストレージ節約する
-- 本番環境デプロイ
+- [x]  将来的にいろんな種類の図表作成に対応できるように拡張性を持たせる
+- [ ]  ↑具体的には、問題の種類とダウンロードできるファイル形式の種類
+- [x]  ストレージ節約の節約
+- [ ]  本番環境デプロイ
 
 [PHPからPlant UMLを使う](https://plantuml.com/ja-dark/code-php)
+
+PHP、Javascript、HTMLに関する気づき
+
+- 
+
+### デプロイ
+
+- nginxインストール
+- サブドメイン　plantuml-problems.kano.wiki
+- サイト公開用フォルダ　`mkdir -p /var/www/plantuml-problems/public` → `sudo chown -R $USER:$USER /var/www/plantuml-problems/public` (publicの所有者を現在のユーザーに移す)
+- プロジェクトフォルダとpublicフォルダをリンク `sudo ln -s ~/web/plantuml-problems/var/www/plantuml-problems/public`
+- 設定ファイル　`sudo nano /etc/nginx/sites-available/plantuml-problems.kano.wiki`
+
+```
+server {
+    listen 80;
+    listen [::]:80;
+
+    root /var/www/plantuml-problems/public/php-plantuml-server;
+    index index.php;
+
+    server_name plantuml-problem.kano.wiki;
+
+    location / {
+			try_files $uri $uri/ $uri.html $uri.php$is_args$query_string;    
+		}
+
+		location ~ \.php$ {
+	    include snippets/fastcgi-php.conf;
+	    fastcgi_pass unix:/run/php/php8.2-fpm.sock;
+	}
+}
+```
+
+- DNS設定
+- 設定ファイルへのショートカット　`sudo ln -s /etc/nginx/sites-available/plantuml-problems.kano.wiki /etc/nginx/sites-enabled/`
+- Nginxへのアクセスを許可 `chmod 755 ~`
+- `sudo reboot`→再接続→`sudo systemctl start nginx`
+- certbotでhttps接続設定
+
+*デプロイ成功したものの、ローカル環境で問題なかったfetch関連の処理がどれも失敗してしまう（プレビューのフォーマット変更など）
+
+→editor.jsのrenderPreview(), downloadImage()内でのfetch先を絶対パス/api.phpに変更 & ブラウザ(Chrome)のキャッシュクリアで解決
 
 ---
