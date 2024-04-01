@@ -983,11 +983,1135 @@ CLIの操作（マイグレーション）は↑のスキーマスクリプテ�
 - スキーマの変更はスタック方式なため、最後に加えられた変更から順に１つずつロールバックが可能
 - すべてのサーバスキーマは一貫したマイグレーションスクリプトの順序に従って更新されるので、あるサーバが数回のマイグレーション分遅れてたとしても一方のサーバと同じ状態に同期できる
 
-準備
+コマンド作成のサンプルスクリプト
 
-- CREATE DATABASE table_migrations;
+- `CREATE DATABASE table_migrations;`
 - スクリプト格納用のファイルの形式
 
 {YYYY-MM-DD}{UNIX_TIMESTAMP}{FILENAME}.php
 
--
+- クラス/インタフェース
+
+Commands/Command.php
+
+```php
+<?php
+
+// すべてのコマンドが持っているメソッドを定義するインタフェース
+
+namespace Commands;
+
+interface Command
+{
+    // コマンドのエイリアスを取得
+    public static function getAlias(): string;
+    // コマンドの引数の配列を取得
+    /** @return Argument[] */
+    public static function getArgs(): array;
+    // コマンドに関するヘルプを取得
+    public static function getHelp(): string;
+    // 値が必要かどうかを取得
+    public static function isCommandValueRequired(): bool;
+
+    // 引数の値を取得
+    /** @return bool | string */
+    public function getArgValue(string $arg): bool|string;
+    // コマンドを実行
+    public function execute(): int;
+}
+```
+
+Commands/AbstractCommand.php
+
+```php
+<?php
+
+// このクラスを拡張してコマンドを作成する
+// 子クラスに stdout に出力する log() メソッドや引数オプションを取得する方法などのヘルパーメソッドを含む
+// シェルから渡された引数を解析し、引数のマップを作成するのが目的
+
+namespace Commands;
+
+use Exception;
+
+abstract class AbstractCommand implements Command
+{
+    protected ?string $value;
+    protected array $argsMap = [];
+    protected static ?string $alias = null;
+
+    protected static bool $commandValueRequired = false;
+
+    /**
+     * @throws Exception
+     */
+
+    public function __construct()
+    {
+        $this->setUpArgsMap();
+    }
+
+    // シェルから引数を読み込み、引数のハッシュマップをセットアップする
+    private function setUpArgsMap(): void
+    {
+        // グローバルスコープの引数の配列を取得
+        $args = $GLOBALS['argv'];
+        // エイリアスのインデックスを検索
+        $startIndex = array_search($this->getAlias(), $args);
+
+        // エイリアスが見つからない場合は例外をスロー
+        // それ以外の場合は、エイリアスのインデックスをインクリメント
+        if ($startIndex === false)
+            throw new Exception(sprintf("%sというエイリアスが見つかりませんでした。", $this->getAlias()));
+        else
+            $startIndex++;
+
+        $shellArgs = [];
+
+        // エイリアスの次の引数が存在しないか、次の引数がオプション(-)の場合で、
+        // コマンドの値が必要な場合は例外をスロー
+        // それ以外の場合は、エイリアスの次の引数を引数マップに追加し、インデックスをインクリメント
+        if (!isset ($args[$startIndex]) || $args[$startIndex][0] === '-') {
+            if ($this->isCommandValueRequired()) {
+                throw new Exception(sprintf("%sコマンドを実行するには値を入力してください。", $this->getAlias()));
+            }
+        } else {
+            $this->argsMap[$this->getAlias()] = $args[$startIndex];
+            $startIndex++;
+        }
+
+        // すべての引数を$argsに格納
+        for ($i = $startIndex; $i < count($args); $i++) {
+            $arg = $args[$i];
+
+            // ハイフンがある場合、ハイフンをキーとして扱う
+            if ($arg[0] . $arg[1] === '--')
+                $key = substr($arg, 2);
+            else if ($arg[0] === '-')
+                $key = substr($arg, 1);
+            else
+                throw new Exception('オプションは-か--で始まる必要があります。');
+
+            $shellArgs[$key] = true;
+
+            // 次のargsエントリがオプション(-)でない場合は引数値として扱い、shellArgsマップに保存
+            if (isset ($args[$i + 1]) && $args[$i + 1] !== '-') {
+                $shellArgs[$key] = $args[$i + 1];
+                $i++;
+            }
+        }
+
+        // コマンドの引数マップを設定
+        foreach ($this->getArgs() as $arg) {
+            $argString = $arg->getArg();
+            $value = null;
+
+            if ($arg->isShortAllowed() && isset ($shellArgs[$argString[0]]))
+                $value = $shellArgs[$argString[0]];
+            else if (isset ($shellArgs[$argString]))
+                $value = $shellArgs[$argString];
+
+            if ($value === null) {
+                if ($arg->isRequired())
+                    throw new Exception(sprintf("必要な引数%sが見つかりませんでした。", $argString));
+                else
+                    $this->argsMap[$argString] = false;
+            } else
+                $this->argsMap[$argString] = $value;
+        }
+
+        // マップをログに出力
+        $this->log(json_encode($this->argsMap));
+    }
+
+    public static function getHelp(): string
+    {
+        $helpString = "Command: " . static::getAlias() . (static::isCommandValueRequired() ? " {value}" : "") . PHP_EOL;
+
+        $args = static::getArgs();
+        if (empty ($args))
+            return $helpString;
+
+        $helpString .= "Arguments: " . PHP_EOL;
+
+        foreach ($args as $arg) {
+            $helpString .= " --" . $arg->getArg();
+
+            if ($arg->isShortAllowed()) {
+                $helpString .= " (-" . $arg->getArg()[0] . ")";
+            }
+            $helpString .= ": " . $arg->isRequired() ? " (Required)" : " (Optional)";
+            $helpString .= PHP_EOL;
+        }
+
+        return $helpString;
+    }
+
+    public static function getAlias(): string
+    {
+        // エイリアスが設定されてない場合はクラス名を返す
+        return static::$alias != null ? static::$alias : static::class;
+    }
+
+    public static function isCommandValueRequired(): bool
+    {
+        return static::$commandValueRequired;
+    }
+
+    public function getCommandValue(): string
+    {
+        return $this->argsMap[static::getAlias()] ?? "";
+    }
+
+    public function getArgValue(string $arg): bool|string
+    {
+        return $this->argsMap[$arg];
+    }
+
+    protected function log(string $info): void
+    {
+        fwrite(STDOUT, $info . PHP_EOL);
+    }
+
+    /** @return Argument[] */
+    public abstract static function getArgs(): array;
+    public abstract function execute(): int;
+}
+```
+
+Commands/Argument.php
+
+```php
+<?php
+
+// コマンドが使える引数を定義する
+// 必要に応じてオプション引数も追加
+
+namespace Commands;
+
+class Argument
+{
+    private string $arg;
+    private string $description = '';
+    private bool $required = true;
+    private bool $allowAsShort = false;
+
+    public function __construct(string $arg)
+    {
+        $this->arg = $arg;
+    }
+
+    public function getArg(): string
+    {
+        return $this->arg;
+    }
+
+    public function getDescription(): string
+    {
+        return $this->description;
+    }
+
+    // descriptionを設定し、引数自身を返す
+    public function description(string $description): Argument
+    {
+        $this->description = $description;
+        return $this;
+    }
+
+    // 引数が必須かどうかを返す
+    public function isRequired(): bool
+    {
+        return $this->required;
+    }
+
+    // 引数が必須かどうかを設定し、引数自身を返す
+    public function required(bool $required): Argument
+    {
+        $this->required = $required;
+        return $this;
+    }
+
+    // 短縮形式の引数を許可するかどうかを返す
+    public function isShortAllowed(): bool
+    {
+        return $this->allowAsShort;
+    }
+
+    // 短縮形式の引数を許可するかどうかを設定し、引数自身を返す
+    public function allowAsShort(bool $allowAsShort): Argument
+    {
+        $this->allowAsShort = $allowAsShort;
+        return $this;
+    }
+}
+```
+
+- コマンドのリスト用レジストリ
+
+Commands/registry.php
+
+```php
+<?php
+
+// コマンドを登録するためのレジストリ
+// consoleはここから読み取る
+return [
+    Commands\Programs\Migrate::class,
+    Commands\Programs\CodeGeneration::class,
+];
+```
+
+- migration コマンド
+
+Commands/Programs/Migrate.php
+
+```php
+<?php
+
+// マイグレーションの実行、ロールバック、新しいスキーマインストールを行う
+namespace Commands\Programs;
+
+use Commands\AbstractCommand;
+use Commands\Argument;
+
+class Migrate extends AbstractCommand
+{
+    // 使用するコマンド名
+    protected static ?string $alias = 'migrate';
+
+    // 引数の割当
+    public static function getArgs(): array
+    {
+        return [
+            (new Argument('rollback'))->description('マイグレーションをロールバックします。ロールバック回数を指定することもできます。')->required(false)->allowAsShort(true),
+        ];
+    }
+
+    public function execute(): int
+    {
+        $rollback = $this->getArgValue('rollback');
+        if (!$rollback) {
+            $this->log("マイグレーションを開始します。");
+            $this->migrate();
+        } else {
+            $rollback = $rollback === true ? 1 : (int) $rollback;
+            $this->log("マイグレーションをロールバックしています。");
+            for ($i = 0; $i < $rollback; $i++) {
+                $this->rollback();
+            }
+        }
+
+        return 0;
+    }
+
+    private function migrate(): void
+    {
+        $this->log("Migrating...");
+        $this->log("マイグレーションが完了しました。\n");
+    }
+
+    private function rollback(): void
+    {
+        $this->log("Rolling back...");
+        $this->log("ロールバックが完了しました。\n");
+    }
+}
+```
+
+- code-genコマンド
+
+```php
+<?php
+
+// コード生成のコマンド
+
+namespace Commands\Programs;
+
+use Commands\AbstractCommand;
+
+class CodeGeneration extends AbstractCommand
+{
+    // 使用するコマンド名
+    protected static ?string $alias = 'code-gen';
+    protected static bool $requiredCommandValue = true;
+
+    // 引数の割当
+    public static function getArgs(): array
+    {
+        return [];
+    }
+
+    public function execute(): int
+    {
+        $codeGenType = $this->getCommandValue();
+        $this->log('Generating code for.......' . $codeGenType);
+        return 0;
+    }
+}
+
+```
+
+- コマンドプログラムのためのエントリポイント
+
+console
+
+```php
+<?php
+spl_autoload_extensions(".php");
+spl_autoload_register(function ($class) {
+    $namespace = explode('\\', $class);
+    $file = __DIR__ . '/' . implode('/', $namespace) . '.php';
+    if (file_exists($file)) {
+        require_once $file;
+    }
+});
+
+$commands = include "Commands/registry.php";
+// 第２引数（実際に実行するコマンド）
+$inputCommand = $argv[1];
+
+foreach ($commands as $commandClass) {
+    $alias = $commandClass::getAlias();
+
+    if ($inputCommand === $alias) {
+        if (in_array('--help', $argv)) {
+            fwrite(STDOUT, $commandClass::getHelp());
+            exit (0);
+        } else {
+            $command = new $commandClass();
+            $result = $command->execute();
+            exit ($result);
+        }
+    }
+}
+
+fwrite(STDOUT, "コマンドを実行できませんでした。" . PHP_EOL);
+
+```
+
+- migrateの実行
+
+`php console migrate`
+
+```bash
+{"rollback":false}
+マイグレーションを開始します。
+Migrating...
+マイグレーションが完了しました。
+```
+
+`php console migrate --rollback` / `php console migrate -r`
+
+```bash
+{"rollback":true}
+マイグレーションをロールバックしています。
+Rolling back...
+ロールバックが完了しました。
+```
+
+`php console migrate -r 3`
+
+```bash
+{"rollback":"3"}
+マイグレーションをロールバックしています。
+Rolling back...
+ロールバックが完了しました。
+
+Rolling back...
+ロールバックが完了しました。
+
+Rolling back...
+ロールバックが完了しました。
+```
+
+- code-genコマンドの実行
+
+`php console code-gen javascript`
+
+```bash
+{"code-gen":"javascript"}
+Generating code for.......javascript
+```
+
+---
+
+コマンドの拡張
+
+課題①：db-wipeコマンド（DBのクリア）
+
+- デフォルト… DBの内容をすべてクリアする
+- dumpオプション… DBに対してmysqldumpを実行し、ダンプファイルにバックアップを作成した後で、DBをクリアする
+- restoreオプション… ダンプファイルからDBの内容を復元する
+
+DBWipe.php
+
+```php
+<?php
+
+// DB全体をクリアするコマンド
+
+namespace Commands\Programs;
+
+use Commands\AbstractCommand;
+use Commands\Argument;
+
+class DBWipe extends AbstractCommand
+{
+    protected static ?string $alias = 'dbwipe';
+
+    public static function getArgs(): array
+    {
+        return [
+            (new Argument('dump'))->description('データベースをダンプし、ダンプファイルを作成します。')->required(false)->allowAsShort(true),
+            (new Argument('restore'))->description('ダンプファイルからデータを復元します。')->required(false)->allowAsShort(true),
+        ];
+    }
+
+    public function execute(): int
+    {
+        // ユーザー名を入力してください
+        $username = readline('ユーザー名を入力してください: ');
+        $dbname = readline('内容をクリアするデータベース名を入力してください: ');
+
+        $dump = $this->getArgValue('dump');
+        $restore = $this->getArgValue('restore');
+
+        if ($dump) {
+            $this->dump($username, $dbname);
+        } else if ($restore) {
+            $this->restore($username, $dbname);
+            return 0;
+        }
+        $this->dbwipe($username, $dbname);
+        return 0;
+    }
+
+    private function dbwipe(string $username, string $dbname): void
+    {
+        exec('mysql -u ' . $username . ' -p ' . $dbname . ' -e "DROP DATABASE IF EXISTS ' . $dbname . '; CREATE DATABASE ' . $dbname . ';"');
+        $this->log(sprintf("データベース %s の内容がクリアされ、再作成されました。" . PHP_EOL, $dbname));
+    }
+
+    private function dump(string $username, string $dbname): void
+    {
+        exec('mysqldump -u ' . $username . ' -p ' . $dbname . ' > Database\Schema\backup.sql');
+        $this->log(sprintf("データベース %s の内容からダンプファイルを作成しました。" . PHP_EOL, $dbname));
+    }
+
+    private function restore(string $username, string $dbname): void
+    {
+        exec('mysql -u ' . $username . ' -p ' . $dbname . ' < Database\Schema\backup.sql');
+        $this->log(sprintf("データベース %s の内容をダンプファイルから復元しました。" . PHP_EOL, $dbname));
+    }
+}
+```
+
+Database/Schema/backup.sql (空)
+
+- `php console dbwipe` → ユーザ名、DB名、パスワードの入力→ DBがDROP, CREATEされて空になった
+- `php console dpwipe --dump` → 入力→ DBが空になり、backup.sqlを通してDBのバックアップが作成されている
+- `php console dbwipe --restore` → 入力 → dumpした内容の通りにDBが復元された
+
+課題②：book-search
+
+課題③：command-generation (code-genを拡張）
+
+---
+
+マイグレーションベースのスキーマ管理
+
+Database/SchemaMigration.php
+
+```php
+<?php
+
+namespace Database;
+
+interface SchemaMigration
+{
+    public function up(): array;
+    public function down(): array;
+}
+
+```
+
+Commands/Programs/CodeGeneration.php
+
+```php
+<?php
+
+// コード生成のコマンド
+
+namespace Commands\Programs;
+
+use Commands\AbstractCommand;
+use Commands\Argument;
+
+class CodeGeneration extends AbstractCommand
+{
+    // 使用するコマンド名
+    protected static ?string $alias = 'code-gen';
+    protected static bool $requiredCommandValue = true;
+
+    // 引数の割当
+    public static function getArgs(): array
+    {
+        return [(new Argument('name'))->description('生成されるファイル名。')->required(false)];
+    }
+
+    public function execute(): int
+    {
+        $codeGenType = $this->getCommandValue();
+
+        switch ($codeGenType) {
+            case 'command':
+                $this->generateCommand(readline("コマンド名を入力してください: "));
+                break;
+            case 'migration':
+                $migrationName = $this->getCommandValue();
+                $this->log(sprintf("マイグレーションファイル %s を生成します。", $migrationName));
+                $this->generateMigrationFile($migrationName);
+            default:
+                $this->log('Invalid code generation type.');
+                break;
+        }
+        return 0;
+    }
+
+    // マイグレーションファイルを生成する関数
+    private function generateMigrationFile(string $migrationName): void
+    {
+        // {YYYY-MM-DD}{UNIXTIME}{ClassName}.phpのフォーマットでマイグレーションファイルを生成
+        $filename = sprintf(
+            '%s_%s_%s.php',
+            date('Y-m-d'),
+            time(),
+            $migrationName
+        );
+
+        $migrationContent = $this->getMigrationContent($migrationName);
+
+        // 移行先
+        $path = sprintf("%s/../../Database/Migrations/%s", __DIR__, $filename);
+
+        file_put_contents($path, $migrationContent);
+        $this->log(sprintf("マイグレーションファイル %s が作成されました。", $filename));
+    }
+
+    // マイグレーションファイルの内容を取得する関数
+    private function getMigrationContent(string $migrationName): string
+    {
+        $className = $this->pascalCase($migrationName);
+
+        return <<<MIGRATION
+<?php
+
+namespace Database\Migrations;
+
+use Database\SchemaMigration;
+
+class {$className} implements SchemaMigration
+{
+    public function up(): array
+    {
+        // マイグレーション処理を書く
+        return [];
+    }
+
+    public function down(): array
+    {
+        // ロールバック処理を書く
+        return [];
+    }
+}
+MIGRATION;
+
+    }
+
+    // スネークケースをパスカルケースに変換する関数
+    private function pascalCase(string $snakeCase): string
+    {
+        return str_replace(' ', '', ucwords(str_replace('_', ' ', $snakeCase)));
+    }
+
+    // 新しいコマンドファイルを生成してProgramsに追加する関数
+    private function generateCommand(string $name): void
+    {
+        $capitalized_name = ucfirst($name);
+        // 空白区切りで引数を取得
+        $args = explode(' ', readline("コマンドで利用するオプションをスペース区切りで入力してください:"));
+        $exec_code = readline("コマンドの実行コードを入力してください: ");
+
+        $file_path = "Commands/Programs/" . $capitalized_name . ".php";
+        $content = "<?php
+            namespace Commands\Programs;
+            
+            use Commands\AbstractCommand;
+            use Commands\Argument;
+
+            class $capitalized_name extends AbstractCommand
+            {
+                protected static ?string \$alias = '$name';
+
+                public static function getArgs(): array
+                {
+
+                    return [
+                        " . implode(",\n", array_map(function ($arg) {
+            return "(new Argument('$arg'))->description('')->required(false)->allowAsShort(true)";
+        }, $args)) . "
+                    ];
+                }
+
+                public function execute(): int
+                {
+                    $exec_code
+                    return 0;
+                }
+            }
+        ";
+
+        file_put_contents($file_path, $content);
+        // registry.phpに新しいコマンドを追加
+        $registry_path = "Commands/registry.php";
+        $registry_content = file_get_contents($registry_path);
+        $registry_content = str_replace("return [", "return [\n    Commands\Programs\\$capitalized_name::class,", $registry_content);
+        file_put_contents($registry_path, $registry_content);
+    }
+}
+
+```
+
+usersテーブル
+
+- `php console code-gen migration --name CreateUserTable1`
+
+Database/Migrations/2024-…_CreateUserTable1.php　が生成された
+
+編集
+
+```php
+<?php
+
+namespace Database\Migrations;
+
+use Database\SchemaMigration;
+
+class CreateUserTable1 implements SchemaMigration
+{
+    // マイグレーションファイルを生成後、メソッドの処理を記述する
+    public function up(): array
+    {
+        // マイグレーション
+        return [
+            "CREATE TABLE users (
+                id BIGINT PRIMARY KEY AUTO_INCREMENT,
+                username VARCHAR(255) NOT NULL,
+                email VARCHAR(255) NOT NULL UNIQUE,
+                password VARCHAR(255) NOT NULL,
+                email_confirmed_at VARCHAR(255),
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )"
+        ];
+    }
+
+    public function down(): array
+    {
+        // ロールバック処理を書く
+        return [
+            "DROP TABLE users"
+        ];
+    }
+}
+```
+
+postsテーブル
+
+Database/Migrations/2024-…_CreateUserTable1.php
+
+```php
+<?php
+
+namespace Database\Migrations;
+
+use Database\SchemaMigration;
+
+class CreatePostTable1 implements SchemaMigration
+{
+    public function up(): array
+    {
+        return [
+            "CREATE TABLE posts (
+                id INT PRIMARY KEY AUTO_INCREMENT,
+                title VARCHAR(255) NOT NULL,
+                content TEXT NOT NULL,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                user_id BIGINT,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            )"
+        ];
+    }
+
+    public function down(): array
+    {
+        return [
+            "DROP TABLE posts"
+        ];
+    }
+}
+
+```
+
+- migrateコマンドを編集
+
+Commands/Programs/Migrate.php
+
+```php
+<?php
+
+// マイグレーションの実行、ロールバック、新しいスキーマインストールを行う
+namespace Commands\Programs;
+
+use Commands\AbstractCommand;
+use Commands\Argument;
+use Database\MySQLWrapper;
+
+class Migrate extends AbstractCommand
+{
+    // 使用するコマンド名
+    protected static ?string $alias = 'migrate';
+
+    // 引数の割当
+    public static function getArgs(): array
+    {
+        return [
+            (new Argument('rollback'))->description('マイグレーションをロールバックします。ロールバック回数を指定することもできます。')->required(false)->allowAsShort(true),
+            (new Argument('init'))->description('新しいマイグレーションテーブルを作成します。')->required(false)->allowAsShort(true),
+        ];
+    }
+
+    public function execute(): int
+    {
+        $rollback = $this->getArgValue('rollback');
+
+        if ($this->getArgValue('init')) {
+            $this->createMigrationsTable();
+        }
+
+        if (!$rollback) {
+            $this->log("マイグレーションを開始します。");
+            $this->migrate();
+        } else {
+            $rollback = $rollback === true ? 1 : (int) $rollback;
+            $this->log("マイグレーションをロールバックしています。");
+            for ($i = 0; $i < $rollback; $i++) {
+                $this->rollback();
+            }
+        }
+
+        return 0;
+    }
+
+    private function createMigrationsTable(): void
+    {
+        $this->log("マイグレーションテーブルを作成します。");
+
+        $mysqli = new MySQLWrapper();
+
+        $result = $mysqli->query("
+            CREATE TABLE IF NOT EXISTS migrations (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                filename VARCHAR(255) NOT NULL
+            );
+        ");
+
+        if (!$result) {
+            throw new \Exception("マイグレーションテーブルの作成に失敗しました。");
+        }
+
+        $this->log("マイグレーションテーブルの作成が完了しました。");
+    }
+
+    private function migrate(): void
+    {
+        $this->log("Migrating...");
+
+        $last_migration = $this->getLastMigration();
+        // 日付順にファイルをソート
+        $all_migrations = $this->getAllMigrationFiles();
+        $start_index = ($last_migration) ? array_search($last_migration, $all_migrations) + 1 : 0;
+
+        for ($i = $start_index; $i < count($all_migrations); $i++) {
+            $filename = $all_migrations[$i];
+
+            // マイグレーションファイルを読み込む
+            include_once ($filename);
+
+            $migration_class = $this->getClassnameFromMigrationFilename($filename);
+            $migration = new $migration_class();
+
+            // マイグレーションを実行
+            $this->log(sprintf("%sのマイグレーションを実行しています。", $migration_class));
+            $queries = $migration->up();
+            if (empty($queries)) {
+                throw new \Exception("マイグレーションファイルのクエリが空です。");
+            }
+
+            // クエリを実行
+            $this->processQueries($queries);
+            $this->insertMigration($filename);
+        }
+
+        $this->log("マイグレーションが完了しました。\n");
+    }
+
+    // マイグレーションファイルからクラス名を取得する関数
+    private function getClassnameFromMigrationFilename(string $filename): string
+    {
+        // 正規表現でクラス名を取得
+        // / ... 正規表現の開始
+        // () ... グループ
+        // [] ... 文字クラス
+        // ^ ... 特定の文字以外
+        // + ... 直前の文字が1文字以上
+        // ([^_]+) ... アンダースコア以外の文字が1文字以上
+        if (preg_match('/([^_]+)\.php$/', $filename, $matches)) {
+            return sprintf("%s\%s", 'Database\Migrations', $matches[1]);
+        } else {
+            throw new \Exception("クラス名の取得に失敗しました。");
+        }
+    }
+
+    // 最後に行ったマイグレーションを取得する関数
+    private function getLastMigration(): ?string
+    {
+        $mysqli = new MySQLWrapper();
+        $query = "SELECT filename FROM migrations ORDER BY id DESC LIMIT 1";
+        $result = $mysqli->query($query);
+
+        // カラムが存在する場合は、ファイル名を返す
+        if ($result && $result->num_rows > 0) {
+            $row = $result->fetch_assoc();
+            return $row['filename'];
+        }
+        return null;
+    }
+
+    // マイグレーションファイルを全て取得する関数
+    private function getAllMigrationFiles(string $order = 'asc'): array
+    {
+        $directory = sprintf("%s/../../Database/Migrations", __DIR__);
+        $this->log($directory);
+
+        // glob ... ワイルドカード文字列と一致するファイルを取得
+        $all_files = glob($directory . "/*.php");
+
+        // デフォルトは昇順でファイルをソート
+        usort($all_files, function ($a, $b) use ($order) {
+            $compare_result = strcmp($a, $b);
+            return ($order === 'asc') ? $compare_result : -$compare_result;
+        });
+
+        return $all_files;
+    }
+
+    private function processQueries(array $queries): void
+    {
+        $mysqli = new MySQLWrapper();
+
+        foreach ($queries as $query) {
+            $result = $mysqli->query($query);
+            if (!$result) {
+                throw new \Exception("クエリの実行に失敗しました。");
+            } else {
+                $this->log("クエリの実行が完了しました。");
+            }
+        }
+    }
+
+    private function insertMigration(string $filename): void
+    {
+        $mysqli = new MySQLWrapper();
+
+        $statement = $mysqli->prepare("INSERT INTO migrations (filename) VALUES (?)");
+        if (!$statement) {
+            throw new \Exception("クエリの準備に失敗しました。");
+        }
+
+        // 準備されたクエリに実際のファイル名を挿入
+        $statement->bind_param('s', $filename);
+
+        // ステートメントの実行
+        if (!$statement->execute()) {
+            throw new \Exception("クエリの実行に失敗しました。");
+        }
+
+        // ステートメントを閉じる
+        $statement->close();
+    }
+
+    private function rollback(): void
+    {
+        $this->log("Rolling back...");
+        $this->log("ロールバックが完了しました。\n");
+    }
+}
+```
+
+- `php console migrate --init`
+- マイグレーションファイルが実行され、usersテーブルとpostsテーブルが作成された
+
+```bash
+{"rollback":false,"init":true}
+マイグレーションテーブルを作成します。
+マイグレーションテーブルの作成が完了しました。
+マイグレーションを開始します。
+Migrating...
+/home/vboxuser/dev/pj5-blog/Commands/Programs/../../Database/Migrations
+Database\Migrations\CreateUserTable1のマイグレーションを実行しています。
+クエリの実行が完了しました。
+Database\Migrations\CreatePostTable1のマイグレーションを実行しています。
+クエリの実行が完了しました。
+マイグレーションが完了しました。
+```
+
+- rollbackオプションの処理を追加
+
+```php
+    private function rollback(int $n = 1): void
+    {
+        $this->log("Rolling back {$n} migration(s)...");
+
+        $last_migration = $this->getLastMigration();
+        $all_migrations = $this->getAllMigrationFiles();
+
+        $last_migration_index = array_search($last_migration, $all_migrations);
+
+        if (!$last_migration_index) {
+            $this->log("最後に実行したマイグレーションが見つかりませんでした。");
+            return;
+        }
+
+        $count = 0;
+        // 最後に実行したマイグレーションからn個分のマイグレーションをロールバック
+        for ($i = $last_migration_index; $count < $n; $i--) {
+            $filename = $all_migrations[$i];
+            $this->log("Rolling back {$filename}...");
+
+            include_once ($filename);
+
+            $migration_class = $this->getClassnameFromMigrationFilename($filename);
+            $migration = new $migration_class();
+
+            $queries = $migration->down();
+            if (empty($queries)) {
+                throw new \Exception("マイグレーションファイルのクエリが空です。");
+            }
+
+            $this->processQueries($queries);
+            $this->removeMigration($filename);
+            $count++;
+        }
+
+        $this->log("ロールバックが完了しました。\n");
+    }
+
+    private function removeMigration(string $filename): void
+    {
+        $mysqli = new MySQLWrapper();
+        $statement = $mysqli->prepare("DELETE FROM migrations WHERE filename = ?");
+
+        if (!$statement) {
+            throw new \Exception("クエリの準備に失敗しました。(" . $mysqli->errno . ")" . $mysqli->error);
+        }
+
+        $statement->bind_param('s', $filename);
+        if (!$statement->execute()) {
+            throw new \Exception("クエリの実行に失敗しました。(" . $mysqli->errno . ")" . $mysqli->error);
+        }
+
+        $statement->close();
+    }
+
+```
+
+- `php console migrate --rollback n`
+- テーブルのロールバックがｎ回行われた
+
+マイグレーションベースのメリット… どのような段階でもスキーママイグレーションを同期できるため、ローカル開発環境や事前デプロイ時に新しいデータを追加しない状態のままロールバックができる
+
+デメリット… 本番サーバでのロールバックはデータ損失のリスクがあるので注意
+
+→本番環境では元に戻す新しいマイグレーションを作成するのが一般的
+
+---
+
+マイグレーションベース
+
+課題①：BlogBook
+
+![Untitled](%E4%BD%9C%E6%A5%AD%E3%83%AD%E3%82%AF%E3%82%99%EF%BC%9APJ5%20%E3%82%B5%E3%83%BC%E3%83%8F%E3%82%99%E3%81%A8%E3%83%86%E3%82%99%E3%83%BC%E3%82%BF%E5%B1%A4%20c2d7924ca566460d9e7debf223b036cd/Untitled%205.png)
+
+- `php console code-gen migration --name Create...Table`
+- 定義に沿って各ファイルを編集
+- `php console migrate --init` テーブル作成
+
+*複数のカラムの組み合わせを一意の主キーとする場合は、複合主キーとして書く
+
+```php
+<?php
+
+namespace Database\Migrations;
+
+use Database\SchemaMigration;
+
+class CreateCommentLikeTable implements SchemaMigration
+{
+    public function up(): array
+    {
+        // マイグレーション処理を書く
+        return [
+            "CREATE TABLE comment_likes(
+                user_id BIGINT,
+                comment_id BIGINT,
+                PRIMARY KEY (user_id, comment_id), //
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY (comment_id) REFERENCES comments(id) ON DELETE CASCADE
+            )"
+        ];
+    }
+
+    public function down(): array
+    {
+        // ロールバック処理を書く
+        return [
+            "DROP TABLE comment_likes"
+        ];
+    }
+}
+```
+
+課題②：BlogBook　拡張
+
+初版のスキーマが完成し、本番環境に展開した後、BlogBook のスキーマはいくつかの改良が必要です。初版のスキーマが既に本番環境にデプロイされているため、新たなマイグレーションを追加して変更とロールバックを容易にします。BlogBooks の第二版を実現するためにテーブルに順次小規模な変更を施してください。
+
+up メソッドで加える各変更には、down メソッドによる対応する逆の操作が必要です。例えば、up メソッドで列を削除する場合、down メソッドではその列を再び追加する処理を行います。
+
+このセクションに取り掛かる前に、初版のスキーマのバックアップを作成し、その時点でのデータを保持しておいてください。
+
+![Untitled](%E4%BD%9C%E6%A5%AD%E3%83%AD%E3%82%AF%E3%82%99%EF%BC%9APJ5%20%E3%82%B5%E3%83%BC%E3%83%8F%E3%82%99%E3%81%A8%E3%83%86%E3%82%99%E3%83%BC%E3%82%BF%E5%B1%A4%20c2d7924ca566460d9e7debf223b036cd/Untitled%206.png)
+
+- tag, categoryの代わりにtaxonomy(分類)とtaxonomy_termテーブルを作成し、postの分類に使う
+- subscription(会員の登録状況)をuserから分離してテーブルを追加
+- →subscriptionテーブルのup()にusersテーブルのsubscription列削除の処理を追加し、down()で逆に列を追加させるようにする
+- taxonomyテーブルのup()でcategory, tag, post_tagテーブルを削除、down()で作成
+
+*SQL文法でやりがちなこと
+
+- CREATE TABLE 文の最後の要素の後にカンマつけて文法エラー
+
+---
+
+状態ベースのスキーマ管理
