@@ -2095,6 +2095,12 @@ class CreateCommentLikeTable implements SchemaMigration
 
 課題②：BlogBook　拡張
 
+初版のスキーマが完成し、本番環境に展開した後、BlogBook のスキーマはいくつかの改良が必要です。初版のスキーマが既に本番環境にデプロイされているため、新たなマイグレーションを追加して変更とロールバックを容易にします。BlogBooks の第二版を実現するためにテーブルに順次小規模な変更を施してください。
+
+up メソッドで加える各変更には、down メソッドによる対応する逆の操作が必要です。例えば、up メソッドで列を削除する場合、down メソッドではその列を再び追加する処理を行います。
+
+このセクションに取り掛かる前に、初版のスキーマのバックアップを作成し、その時点でのデータを保持しておいてください。
+
 ![Untitled](%E4%BD%9C%E6%A5%AD%E3%83%AD%E3%82%AF%E3%82%99%EF%BC%9APJ5%20%E3%82%B5%E3%83%BC%E3%83%8F%E3%82%99%E3%81%A8%E3%83%86%E3%82%99%E3%83%BC%E3%82%BF%E5%B1%A4%20c2d7924ca566460d9e7debf223b036cd/Untitled%206.png)
 
 - tag, categoryの代わりにtaxonomy(分類)とtaxonomy_termテーブルを作成し、postの分類に使う
@@ -2109,3 +2115,2937 @@ class CreateCommentLikeTable implements SchemaMigration
 ---
 
 状態ベースのスキーマ管理
+
+- マイグレーションベース….段階的にスキーマに変更を加える（一般に使われる方法）
+- 状態ベース….希望する状態のスキーマをあらかじめ定義し、現在のテーブルの状態と比較して、必要に応じてツールによって自動でマイグレーションファイルを生成させる
+- （DBをリセットできる状況や、大規模な開発でより有効）
+
+自動でスキーマを管理するようにあらかじめシステムを組むため、最初の開発・設計がより複雑
+
+テンプレ
+
+```php
+type ForeignKeyDefinition = {
+  'referenceTable' => string,
+  'referenceColumn' => string, 
+  ?'onDelete' => string, // オプション
+};
+
+type ColumnDefinition = {
+  'dataType' => string,      
+  ?'constraints' => string, // オプション
+  ?'primaryKey' => bool, // オプション
+  'nullable' => bool,     
+  ?'foreignKey' => ForeignKeyDefinition, // オプション
+  // ...他の列のプロパティも許可されています
+};
+
+type TableDefinition = {
+  string => ColumnDefinition // キーとして列名
+};
+
+type DatabaseSchemaDefinition = dict<string, TableDefinition>; // キーとしてテーブル名
+
+```
+
+Database/setup.php
+
+```php
+<?php
+
+return [
+    'User' => [
+        'userID' => [
+            'dataType' => 'INT',
+            'constraints' => 'AUTO_INCREMENT',
+            'primaryKey' => true,
+            'nullable' => false,
+        ],
+        'username' => [
+            'dataType' => 'VARCHAR(255)',
+            'nullable' => false,
+        ],
+        'email' => [
+            'dataType' => 'VARCHAR(255)',
+            'nullable' => false,
+        ],
+        'password' => [
+            'dataType' => 'VARCHAR(255)',
+            'nullable' => false,
+        ],
+        'email_confirmed_at' => [
+            'dataType' => 'VARCHAR(255)',
+            'nullable' => true,
+        ],
+        'created_at' => [
+            'dataType' => 'DATETIME',
+            'nullable' => false,
+        ],
+        'updated_at' => [
+            'dataType' => 'DATETIME',
+            'nullable' => false,
+        ]
+    ],
+    'Post' => [
+        'postID' => [
+            'dataType' => 'INT',
+            'constraints' => 'AUTO_INCREMENT',
+            'primaryKey' => true,
+            'nullable' => false,
+        ],
+        'title' => [
+            'dataType' => 'VARCHAR(255)',
+            'nullable' => false,
+        ],
+        'content' => [
+            'dataType' => 'TEXT',
+            'nullable' => false,
+        ],
+        'created_at' => [
+            'dataType' => 'DATETIME',
+            'nullable' => false,
+        ],
+        'updated_at' => [
+            'dataType' => 'DATETIME',
+            'nullable' => false,
+        ],
+        'userID' => [
+            'dataType' => 'INT',
+            'foreignKey' => [
+                'referenceTable' => 'User',
+                'referenceColumn' => 'userID',
+                'onDelete' => 'CASCADE'
+            ],
+            'nullable' => false,
+        ]
+    ],
+    'Comment' => [
+        'commentID' => [
+            'dataType' => 'INT',
+            'constraints' => 'AUTO_INCREMENT',
+            'primaryKey' => true,
+            'nullable' => false,
+        ],
+        'commentText' => [
+            'dataType' => 'VARCHAR(255)',
+            'nullable' => false,
+        ],
+        'created_at' => [
+            'dataType' => 'DATETIME',
+            'nullable' => false,
+        ],
+        'updated_at' => [
+            'dataType' => 'DATETIME',
+            'nullable' => false,
+        ],
+        'userID' => [
+            'dataType' => 'INT',
+            'foreignKey' => [
+                'referenceTable' => 'User',
+                'referenceColumn' => 'userID',
+                'onDelete' => 'CASCADE'
+            ],
+            'nullable' => false,
+        ],
+        'postID' => [
+            'dataType' => 'INT',
+            'foreignKey' => [
+                'referenceTable' => 'Post',
+                'referenceColumn' => 'postID',
+                'onDelete' => 'CASCADE'
+            ],
+            'nullable' => false,
+        ]
+    ],
+    'PostLike' => [
+        'userID' => [
+            'dataType' => 'INT',
+            'foreignKey' => [
+                'referenceTable' => 'User',
+                'referenceColumn' => 'userID',
+                'onDelete' => 'CASCADE'
+            ],
+            'primaryKey' => true,
+            'nullable' => false,
+        ],
+        'postID' => [
+            'dataType' => 'INT',
+            'foreignKey' => [
+                'referenceTable' => 'Post',
+                'referenceColumn' => 'postID',
+                'onDelete' => 'CASCADE'
+            ],
+            'primaryKey' => true,
+            'nullable' => false,
+        ]
+    ],
+    'CommentLike' => [
+        'userID' => [
+            'dataType' => 'INT',
+            'foreignKey' => [
+                'referenceTable' => 'User',
+                'referenceColumn' => 'userID',
+                'onDelete' => 'CASCADE'
+            ],
+            'primaryKey' => true,
+            'nullable' => false,
+        ],
+        'commentID' => [
+            'dataType' => 'INT',
+            'foreignKey' => [
+                'referenceTable' => 'Comment',
+                'referenceColumn' => 'commentID',
+                'onDelete' => 'CASCADE'
+            ],
+            'primaryKey' => true,
+            'nullable' => false,
+        ]
+    ]
+];
+
+```
+
+Commands/Programs/StateMigrate.php
+
+```php
+<?php
+
+namespace Commands\Programs;
+
+use Commands\AbstractCommand;
+use Commands\Argument;
+use Database\MySQLWrapper;
+
+class StateMigrate extends AbstractCommand
+{
+    protected static ?string $alias = 'state-migrate';
+
+    public static function getArgs(): array
+    {
+        return [
+            (new Argument('init'))->description('Table Initialization')->required(true),
+        ];
+    }
+
+    public function execute(): int
+    {
+        $this->log("Starting state migration...");
+
+        // データベース全体をクリーンアップします
+        $this->cleanDatabase();
+        
+        $desiredSchema = include('./Database/state.php');  
+        foreach ($desiredSchema as $table => $columns) {
+            $this->stateToSchema($table, $columns);
+        }
+
+        $this->log("State migration completed.");
+        return 0;
+    }
+
+    private function cleanDatabase(): void
+    {
+        $mysqli = new MySQLWrapper();
+
+        // ドロップ中のエラーを防ぐため、外部キーチェックを無効化
+        // (外部キーを持つテーブルを消したあとで関連するテーブルを消す処理に入るときにキーを参照しようとしないため）
+        $mysqli->query("SET foreign_key_checks = 0");
+
+        $result = $mysqli->query("SHOW TABLES");
+        while ($row = $result->fetch_row()) {
+            $table = $row[0];
+            $this->log("Dropping table $table");
+            $mysqli->query("DROP TABLE `$table`");
+        }
+
+        // 外部キーチェックを最有効化
+        $mysqli->query("SET foreign_key_checks = 1");
+    }
+    
+    private function stateToSchema(string $table, array $columns): void
+    {
+        $mysqli = new MySQLWrapper();
+
+        $columnDefinitions = [];
+        $keys = [];
+        $primaryKeysColumns = [];
+        foreach ($columns as $columnName => $columnProps) {
+            $definition = "`$columnName` {$columnProps['dataType']}";
+
+            if (isset($columnProps['constraints'])) {
+                $definition .= " {$columnProps['constraints']}";
+            }
+
+            if (isset($columnProps['nullable']) && !$columnProps['nullable']) {
+                $definition .= " NOT NULL";
+            }
+
+            if (isset($columnProps['primaryKey']) && $columnProps['primaryKey']) {
+               
+	    $primaryKeysColumns[] = $columnName;
+            }
+
+            if (isset($columnProps['foreignKey'])) {
+                $fk = $columnProps['foreignKey'];
+                $onDelete = isset($fk['onDelete']) ? "ON DELETE {$fk['onDelete']}" : "";
+                $keys[] = "FOREIGN KEY (`$columnName`) REFERENCES {$fk['referenceTable']}({$fk['referenceColumn']}) $onDelete";
+            }
+
+            $columnDefinitions[] = $definition;
+        }
+
+        if (count($primaryKeysColumns) > 0) {
+            $keys[] = "PRIMARY KEY (" . implode(", ", $primaryKeysColumns) . ")";
+        }
+
+        $columnSQL = implode(', ', $columnDefinitions);
+        $keysSQL = implode(', ', $keys);
+
+        $createTableQuery = "CREATE TABLE IF NOT EXISTS `$table` ($columnSQL, $keysSQL)";
+
+        $result = $mysqli->query($createTableQuery);
+        if ($result === false) throw new \Exception("Failed to ensure table $table matches desired state.");
+        else $this->log("Ensured table $table matches desired state.");
+    }
+}
+
+```
+
+- registry.phpにStateMigrateコマンドを追加
+- `php console state-migrate --init`
+
+---
+
+DML操作
+
+データ挿入, 読み取り、更新、削除（CRUD）
+
+sql-test.php
+
+```php
+<?php
+
+use Database\MySQLWrapper;
+
+spl_autoload_extensions(".php");
+spl_autoload_register(function ($class) {
+    $namespace = explode('\\', $class);
+    $file = __DIR__ . '/' . implode('/', $namespace) . '.php';
+    if (file_exists($file)) {
+        require_once $file;
+    }
+});
+
+$mysqli = new MySQLWrapper();
+
+$createTableQuery = "
+    CREATE TABLE IF NOT EXISTS students (
+      id INT PRIMARY KEY AUTO_INCREMENT,
+      name VARCHAR(100),
+      age INT,
+      major VARCHAR(50)
+    )
+";
+
+$mysqli->query($createTableQuery);
+
+// データの作成（create）
+$students_data = [
+    ['John', 18, 'Mathematics'],
+    ['Jane', 19, 'Physics'],
+    ['Doe', 20, 'Chemistry'],
+    ['Smith', 21, 'Biology'],
+    ['Brown', 22, 'Computer Science'],
+];
+
+foreach ($students_data as $student) {
+    $insert_query = "
+        INSERT INTO students (name, age, major)
+        VALUES ('{$student[0]}', {$student[1]}, '{$student[2]}')
+    ";
+    $mysqli->query($insert_query);
+}
+
+// データの読み取り（read）   
+$select_query = "SELECT * FROM students";
+$result = $mysqli->query($select_query);
+
+// 一行ずつ取得
+while ($row = $result->fetch_assoc()) {
+    echo "ID: " . $row['id'] . ", Name: " . $row['name'] . ", Age: " . $row['age'] . ", Major: " . $row['major'] . PHP_EOL;
+}
+
+echo "--------------------------------------" . PHP_EOL;
+echo "データの更新" . PHP_EOL;
+
+// データの更新（update）
+$updates = [
+    ['John', 'Philosophy'],
+    ['Jane', 'Astronomy'],
+    ['Doe', 'Geology'],
+    ['Smith', 'Physics'],
+    ['Brown', 'Computer Engineering'],
+];
+
+foreach ($updates as $update) {
+    $update_query = "
+        UPDATE students
+        SET major = '{$update[1]}'
+        WHERE name = '{$update[0]}'
+    ";
+    $mysqli->query($update_query);
+}
+
+$select_query = "SELECT * FROM students";
+$result = $mysqli->query($select_query);
+
+// 一行ずつ取得
+while ($row = $result->fetch_assoc()) {
+    echo "ID: " . $row['id'] . ", Name: " . $row['name'] . ", Age: " . $row['age'] . ", Major: " . $row['major'] . PHP_EOL;
+}
+
+echo "--------------------------------------" . PHP_EOL;
+echo "データの削除" . PHP_EOL;
+
+// データの削除（delete）
+$students_to_delete = ['John', 'Jane'];
+
+foreach ($students_to_delete as $student) {
+    $delete_query = "
+        DELETE FROM students
+        WHERE name = '{$student}'";
+    $mysqli->query($delete_query);
+}
+
+$select_query = "SELECT * FROM students";
+$result = $mysqli->query($select_query);
+
+// 一行ずつ取得
+while ($row = $result->fetch_assoc()) {
+    echo "ID: " . $row['id'] . ", Name: " . $row['name'] . ", Age: " . $row['age'] . ", Major: " . $row['major'] . PHP_EOL;
+}
+```
+
+---
+
+セキュリティ
+
+疑似的なSQLインジェクションを起こしてみる
+
+php console code-gen migration --name CreateUsersTestTable1
+
+```php
+<?php
+
+namespace Database\Migrations;
+
+use Database\SchemaMigration;
+
+class CreateUsersTestTable1 implements SchemaMigration
+{
+    public function up(): array
+    {
+        return [
+            "CREATE TABLE test_users (
+                id BIGINT PRIMARY KEY AUTO_INCREMENT,
+                username VARCHAR(255) NOT NULL,
+                email VARCHAR(255) NOT NULL UNIQUE,
+                password VARCHAR(255) NOT NULL,
+                role VARCHAR(255)
+            )"
+        ];
+    }
+
+    public function down(): array
+    {
+        return [
+            "DROP TABLE test_users"
+        ];
+    }
+}
+
+```
+
+- データの挿入
+
+insert_user_sample.php
+
+```php
+<?php
+spl_autoload_extensions(".php");
+spl_autoload_register(function ($class) {
+    $namespace = explode('\\', $class);
+    $file = __DIR__ . '/' . implode('/', $namespace) . '.php';
+    if (file_exists($file)) {
+        require_once $file;
+    }
+});
+
+use Database\MySQLWrapper;
+
+$mysqli = new MySQLWrapper();
+
+$charset = $mysqli->get_charset();
+if ($charset === null)
+    throw new Exception('Charset could be read');
+
+$users_data = [
+    ['admin', 'admin@example.com', '32u08fa9', 'admin'],
+    ['user_1', 'user-1@example.com', 'jd9aewh3', 'user'],
+    ['user_2', 'user-2@example.com', '9afeovz', 'user']
+];
+
+foreach ($users_data as $user) {
+    $insert_query = "INSERT INTO test_users (username, email, password, role) VALUES ('$user[0]', '$user[1]', '$user[2]', '$user[3]')";
+    $mysqli->query($insert_query);
+}
+
+```
+
+- ログインページ
+
+public/test_login.html
+
+```html
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <title>ログイン</title>
+</head>
+
+<body>
+    <form action="/test_login.php" method="post">
+        <label for="username">ユーザー名:</label>
+        <input type="text" id="username" name="username" required>
+        <label for="password">パスワード:</label>
+        <input type="password" id="password" name="password" required>
+        <input type="submit" value="ログイン">
+    </form>
+</body>
+
+</html>
+```
+
+- インジェクション対策されてないtest_login.php
+
+public/test_login.php
+
+```php
+<?php
+// ファイルを探すためのパスを設定
+echo get_include_path();
+set_include_path(get_include_path() . PATH_SEPARATOR . realpath(__DIR__ . '/..'));
+spl_autoload_extensions(".php");
+spl_autoload_register(function ($class) {
+    $namespace = explode('\\', $class);
+    $file = __DIR__ . '/' . implode('/', $namespace) . '.php';
+    if (file_exists($file)) {
+        require_once $file;
+    }
+});
+
+use Database\MySQLWrapper;
+
+$mysqli = new MySQLWrapper();
+$charset = $mysqli->get_charset();
+if ($charset === null)
+    throw new Exception('Charset could be read');
+
+// フォームから送信されたユーザー名とパスワードを取得
+$username = $_POST['username'] ?? '';
+$password = $_POST['password'] ?? '';
+
+$query = "SELECT * FROM test_users WHERE username = '$username' AND password = '$password';";
+$result = $mysqli->query($query);
+$user_data = $result->fetch_assoc();
+
+if ($user_data) {
+    $login_username = $userData["username"];
+    $login_email = $userData["email"];
+    $login_role = $userData["role"];
+
+    echo "ログイン成功<br/>";
+    echo "こんにちは、$login_username<br/>";
+    if ($login_role == 'admin') {
+        echo "role: admin でログインしています。<br/>";
+        echo "password: $password<br/>";
+    }
+} else {
+    echo "ログイン失敗<br/>";
+}
+
+```
+
+- `cd public`
+- `php -S localhost:8000`を立ち上げ、http://127.0.0.1:8000/test_login.htmlからログイン画面にアクセス
+- user1でログイン（パスワード：jd9aewh3）
+
+↑をしたときにDB側でおこっている処理
+
+```sql
+SELECT * FROM users WHERE username = 'user1' AND password = 'jd9aewh3';
+```
+
+SQLインジェクション攻撃が出来てしまう
+
+- ユーザー名を`admin' ; --` としてログイン　パスワードなしでログインできてしまう
+- ;でSQL文がAND直前で終わり、AND以降がコメントアウトされてしまうから
+
+裏側
+
+```sql
+SELECT * FROM users WHERE username = 'admin' ; -- ' AND password = '';
+
+```
+
+↓のようにSQLが改ざんされてしまう
+
+```sql
+SELECT * FROM users WHERE username = 'admin' ;
+
+```
+
+代表的な攻撃
+
+- クラシックSQLインジェクション… 上記のような例
+- ブラインドSQLインジェクション… DBにSQLに関する質問を繰り返し、その応答の違いから判断して情報を盗む
+- タイムベースブラインドSQLインジェクション… SLEEP(time)やBENCHMARK(count, expr)など特定のキーワードを用いて、ページ応答までの時間から脆弱性があるかどうか判断する
+
+インジェクションを防ぐmysqliの機能
+
+- prepare() … 実際のデータの代わりにプレースホルダーを使用して、完全なクエリを最初に書く関数(SQL文のみを渡す）
+
+```php
+<?php
+
+$name = "Alice";
+$stmt = $mysqli->prepare("SELECT * FROM students WHERE name = ?");
+$stmt->bind_param("s", $name);
+$stmt->execute();
+$result = $stmt->get_result();
+```
+
+ユーザーからの入力は常にデータとして扱われ、実行可能なコードとしては扱われない
+
+代表的なセキュリティ対策
+
+- 入力のサニタイズ… ユーザーからの入力データはそのまま信用せず、コードに組み込む前に検証する（htmlspecialchars(), strip_tags()ではHTMLタグや特殊文字を無効化できる）
+- 厳格な型付け（年齢フィールドは数字以外の入力ははじくなど）
+- ユーザーロールごとに権限づけ、機能制限
+- セッション管理
+- エンドユーザーに対して詳細すぎるエラーメッセージは表示しない
+- DBへのアクセス権限を最小限化
+- 定期的にバックアップ
+- HTTPSなどの安全な通信セキュリティ確保
+- セキュリティ設定や処理を定期的にレビュー
+
+---
+
+テーブルの初期データ投入（コンピュータ部品情報のAPI作成）
+
+DBにアクセスするアプリ開発の際、一般的には初期データ（ダミーデータ）を前もって準備して設定しておく
+
+エンドポイント
+
+- /random/part
+- /parts?id={id}
+- /types?type={type}&page={page}&perpage={count}
+- /random/computer
+
+![Untitled](%E4%BD%9C%E6%A5%AD%E3%83%AD%E3%82%AF%E3%82%99%EF%BC%9APJ5%20%E3%82%B5%E3%83%BC%E3%83%8F%E3%82%99%E3%81%A8%E3%83%86%E3%82%99%E3%83%BC%E3%82%BF%E5%B1%A4%20c2d7924ca566460d9e7debf223b036cd/Untitled%207.png)
+
+- `php console code-gen migration --name CreateComputerPartsTable1`
+
+```php
+<?php
+
+namespace Database\Migrations;
+
+use Database\SchemaMigration;
+
+class CreateComputerPartsTable1 implements SchemaMigration
+{
+    public function up(): array
+    {
+        return [
+            "CREATE TABLE computer_parts (
+                id INT PRIMARY KEY AUTO_INCREMENT,
+                name VARCHAR(255) NOT NULL,
+                type VARCHAR(50) NOT NULL,
+                brand VARCHAR(255) NOT NULL,
+                model_number VARCHAR(100),
+                release_date DATE,
+                description TEXT,
+                performance_score INT,
+                market_price DECIMAL(12, 2),
+                rsm DECIMAL(12, 2),
+                power_consumptionw FLOAT,
+                lengthm DOUBLE,
+                widthm DOUBLE,
+                heightm DOUBLE,
+                lifespan INT,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )"
+        ];
+    }
+
+    public function down(): array
+    {
+        return [
+            "DROP TABLE computer_parts"
+        ];
+    }
+}
+
+```
+
+- `php console migrate --init`
+
+- 初期データを投入（シーディング）するシステムを作成
+
+Database/Seeder.php
+
+```php
+<?php
+
+namespace Database;
+
+interface Seeder
+{
+    public function seed(): void;
+
+    public function createRowData(): array;
+}
+
+```
+
+Database/AbstractSeeder.php
+
+```php
+<?php
+namespace Database;
+
+use Database\MySQLWrapper;
+
+abstract class AbstractSeeder implements Seeder
+{
+    protected MySQLWrapper $conn;
+    protected ?string $tableName = null;
+
+    // テーブルカラムは、'data_type' と 'column_name' を含む連想配列の配列です。
+    protected array $tableColumns = [];
+
+    // キーはデータ型の文字列で、値はbind_paramの文字列
+    const AVAILABLE_TYPES = [
+        'int' => 'i',
+        // PHPのfloatはdouble型の精度
+        'float' => 'd',
+        'string' => 's',
+    ];
+
+    public function __construct(MySQLWrapper $conn)
+    {
+        $this->conn = $conn;
+    }
+
+    public function seed(): void
+    {
+        // データを作成
+        $data = $this->createRowData();
+
+        if ($this->tableName === null)
+            throw new \Exception('Class requires a table name');
+        if (empty($this->tableColumns))
+            throw new \Exception('Class requires a columns');
+
+        foreach ($data as $row) {
+            // 行を検証
+            $this->validateRow($row);
+            $this->insertRow($row);
+        }
+    }
+
+    // 各行をtableColumnsと照らし合わせて検証する関数
+    protected function validateRow(array $row): void
+    {
+        if (count($row) !== count($this->tableColumns))
+            throw new \Exception('Row does not match the ');
+
+        foreach ($row as $i => $value) {
+            $columnDataType = $this->tableColumns[$i]['data_type'];
+            $columnName = $this->tableColumns[$i]['column_name'];
+
+            if (!isset(static::AVAILABLE_TYPES[$columnDataType]))
+                throw new \InvalidArgumentException(sprintf("The data type %s is not an available data type.", $columnDataType));
+
+            // 値のデータタイプを返すget_debug_type()とgettype()がある
+            // https://www.php.net/manual/en/function.get-debug-type.php 
+            // get_debug_type ... ネイティブPHP8のタイプを返す。 (floatsのgettype()の場合は'float'ではなく、'double'を返す)
+            if (get_debug_type($value) !== $columnDataType)
+                throw new \InvalidArgumentException(sprintf("Value for %s should be of type %s. Here is the current value: %s", $columnName, $columnDataType, json_encode($value)));
+        }
+    }
+
+    // 各行を挿入する関数
+    protected function insertRow(array $row): void
+    {
+        // カラム名を取得
+        $columnNames = array_map(function ($columnInfo) {
+            return $columnInfo['column_name'];
+        }, $this->tableColumns);
+
+        // プレースホルダーの?はcount($row) - 1回繰り返され、最後の?の後にはカンマをつけない
+        // そこにbind_paramで値を挿入する
+        $placeholders = str_repeat('?,', count($row) - 1) . '?';
+
+        $sql = sprintf(
+            'INSERT INTO %s (%s) VALUES (%s)',
+            $this->tableName,
+            implode(', ', $columnNames),
+            $placeholders
+        );
+
+        // prepare()はSQLステートメントを準備し、ステートメントオブジェクトを返す
+        $stmt = $this->conn->prepare($sql);
+
+        // データ型配列を結合して文字列にする
+        $dataTypes = implode(array_map(function ($columnInfo) {
+            return static::AVAILABLE_TYPES[$columnInfo['data_type']];
+        }, $this->tableColumns));
+
+        // 文字の配列（文字列）を取り、それぞれに行の値を挿入する
+        // 例：$stmt->bind_param('iss', ...array_values([1, 'John', 'john@example.com'])) は、ステートメントに整数(i)、文字列(s)、文字列(s)を挿入する
+        $row_values = array_values($row);
+        $stmt->bind_param($dataTypes, ...$row_values);
+
+        $stmt->execute();
+    }
+}
+```
+
+Database/Seeds/ComputerPartsSeeder.php
+
+```php
+<?php
+
+namespace Database\Seeds;
+
+use Database\AbstractSeeder;
+
+class ComputerPartsSeeder extends AbstractSeeder
+{
+    protected ?string $tableName = 'computer_parts';
+    protected array $tableColumns = [
+        [
+            'data_type' => 'string',
+            'column_name' => 'name'
+        ],
+        [
+            'data_type' => 'string',
+            'column_name' => 'type'
+        ],
+        [
+            'data_type' => 'string',
+            'column_name' => 'brand'
+        ],
+        [
+            'data_type' => 'string',
+            'column_name' => 'model_number'
+        ],
+        [
+            'data_type' => 'string',
+            'column_name' => 'release_date'
+        ],
+        [
+            'data_type' => 'string',
+            'column_name' => 'description'
+        ],
+        [
+            'data_type' => 'int',
+            'column_name' => 'performance_score'
+        ],
+        [
+            'data_type' => 'float',
+            'column_name' => 'market_price'
+        ],
+        [
+            'data_type' => 'float',
+            'column_name' => 'rsm'
+        ],
+        [
+            'data_type' => 'float',
+            'column_name' => 'power_consumptionw'
+        ],
+        [
+            'data_type' => 'float',
+            'column_name' => 'lengthm'
+        ],
+        [
+            'data_type' => 'float',
+            'column_name' => 'widthm'
+        ],
+        [
+            'data_type' => 'float',
+            'column_name' => 'heightm'
+        ],
+        [
+            'data_type' => 'int',
+            'column_name' => 'lifespan'
+        ]
+    ];
+
+    public function createRowData(): array
+    {
+        return [
+            [
+                'Ryzen 9 5900X',
+                'CPU',
+                'AMD',
+                '100-000000061',
+                '2020-11-05',
+                'A high-performance 12-core processor.',
+                90,
+                549.99,
+                0.05,
+                105.0,
+                0.04,
+                0.04,
+                0.005,
+                5
+            ],
+            [
+                'GeForce RTX 3080',
+                'GPU',
+                'NVIDIA',
+                '10G-P5-3897-KR',
+                '2020-09-17',
+                'A powerful gaming GPU with ray tracing support.',
+                93,
+                699.99,
+                0.04,
+                320.0,
+                0.285,
+                0.112,
+                0.05,
+                5
+            ],
+            [
+                'Samsung 970 EVO SSD',
+                'SSD',
+                'Samsung',
+                'MZ-V7E500BW',
+                '2018-04-24',
+                'A fast NVMe M.2 SSD with 500GB storage.',
+                88,
+                79.99,
+                0.02,
+                5.7,
+                0.08,
+                0.022,
+                0.0023,
+                5
+            ],
+            [
+                'Corsair Vengeance LPX 16GB',
+                'RAM',
+                'Corsair',
+                'CMK16GX4M2B3200C16',
+                '2015-08-10',
+                'A DDR4 memory kit operating at 3200MHz.',
+                85,
+                69.99,
+                0.03,
+                1.2,
+                0.137,
+                0.03,
+                0.007,
+                7
+            ],
+            [
+                'ASUS ROG Strix B550-F',
+                'Motherboard',
+                'ASUS',
+                '90MB14F0-M0EAY0',
+                '2020-06-16',
+                'A high-end motherboard with PCIe 4.0 support.',
+                87,
+                189.99,
+                0.03,
+                0.0,
+                0.305,
+                0.244,
+                0.005,
+                5
+            ],
+            [
+                'EVGA SuperNOVA 750 G5',
+                'PSU',
+                'EVGA',
+                '220-G5-0750-X1',
+                '2019-06-05',
+                'A 750W power supply with 80 Plus Gold certification.',
+                90,
+                129.99,
+                0.03,
+                750.0,
+                0.15,
+                0.15,
+                0.085,
+                7
+            ],
+            [
+                'NZXT H510',
+                'Case',
+                'NZXT',
+                'CA-H510B-W1',
+                '2019-08-01',
+                'A compact ATX case with a tempered glass side panel.',
+                85,
+                69.99,
+                0.03,
+                0.0,
+                0.428,
+                0.210,
+                0.460,
+                5
+            ]
+        ];
+    }
+}
+
+```
+
+- seedコマンド
+
+Commands/Programs/Seed.php
+
+```php
+<?php
+
+namespace Commands\Programs;
+
+use Commands\AbstractCommand;
+use Database\MySQLWrapper;
+use Database\Seeder;
+
+class Seed extends AbstractCommand
+{
+    // コマンド名を設定します
+    protected static ?string $alias = 'seed';
+
+    public static function getArgs(): array
+    {
+        return [];
+    }
+
+    public function execute(): int
+    {
+        $this->runAllSeeds();
+        return 0;
+    }
+
+    function runAllSeeds(): void
+    {
+        $directory_path = __DIR__ . '/../../Database/Seeds';
+
+        // Seedsディレクトリ内のファイルを取得
+        $files = scandir($directory_path);
+
+        foreach ($files as $file) {
+            if (pathinfo($file, PATHINFO_EXTENSION) === 'php') {
+                // クラス名をファイル名から取得
+                $class_name = 'Database\Seeds\\' . pathinfo($file, PATHINFO_FILENAME);
+
+                // シードファイルを読み込む
+                include_once $directory_path . '/' . $file;
+
+                if (class_exists($class_name) && is_subclass_of($class_name, Seeder::class)) {
+                    $seeder = new $class_name(new MySQLWrapper());
+                    $seeder->seed();
+                } else
+                    throw new \Exception('Seeder must be a class that subclasses the seeder interface');
+            }
+        }
+    }
+}
+```
+
+- `php console seed` 
+
+＊class_exists()がfalse　→ファイル名が違っていたため（注意）
+
+computer_partsテーブルにデータが挿入された
+
+---
+
+課題①: computer_partsテーブル　createRowData()のリファクタリング
+
+- fakerライブラリでデータをランダム生成できるようにする
+- １万行のデータをDBに追加できるかどうかテスト
+
+- Composerを使ってfakerをインストール
+
+composer.jsonを作成
+
+```json
+{
+    "require": {
+        "fakerphp/faker": "^1.15"
+    }
+}
+```
+
+composer require fakerphp/faker　fakerをインストール
+
+vendorフォルダがインストールされ、`require_once ‘vendor/autoload.php’;` を記述すればcomposerの依存関係を自動的に読み込める
+
+Database/ComputerPartsSeeder.php
+
+```php
+<?php
+
+namespace Database\Seeds;
+
+require_once 'vendor/autoload.php';
+
+use Database\AbstractSeeder;
+
+class ComputerPartsSeeder extends AbstractSeeder
+{
+    protected ?string $tableName = 'computer_parts';
+    protected array $tableColumns = [
+        [
+            'data_type' => 'string',
+            'column_name' => 'name'
+        ],
+        [
+            'data_type' => 'string',
+            'column_name' => 'type'
+        ],
+        [
+            'data_type' => 'string',
+            'column_name' => 'brand'
+        ],
+        [
+            'data_type' => 'string',
+            'column_name' => 'model_number'
+        ],
+        [
+            'data_type' => 'string',
+            'column_name' => 'release_date'
+        ],
+        [
+            'data_type' => 'string',
+            'column_name' => 'description'
+        ],
+        [
+            'data_type' => 'int',
+            'column_name' => 'performance_score'
+        ],
+        [
+            'data_type' => 'float',
+            'column_name' => 'market_price'
+        ],
+        [
+            'data_type' => 'float',
+            'column_name' => 'rsm'
+        ],
+        [
+            'data_type' => 'float',
+            'column_name' => 'power_consumptionw'
+        ],
+        [
+            'data_type' => 'float',
+            'column_name' => 'lengthm'
+        ],
+        [
+            'data_type' => 'float',
+            'column_name' => 'widthm'
+        ],
+        [
+            'data_type' => 'float',
+            'column_name' => 'heightm'
+        ],
+        [
+            'data_type' => 'int',
+            'column_name' => 'lifespan'
+        ]
+    ];
+
+    public function createRowData(): array
+    {
+        return [
+            [
+                'Ryzen 9 5900X',
+                'CPU',
+                'AMD',
+                '100-000000061',
+                '2020-11-05',
+                'A high-performance 12-core processor.',
+                90,
+                549.99,
+                0.05,
+                105.0,
+                0.04,
+                0.04,
+                0.005,
+                5
+            ],
+            [
+                'GeForce RTX 3080',
+                'GPU',
+                'NVIDIA',
+                '10G-P5-3897-KR',
+                '2020-09-17',
+                'A powerful gaming GPU with ray tracing support.',
+                93,
+                699.99,
+                0.04,
+                320.0,
+                0.285,
+                0.112,
+                0.05,
+                5
+            ],
+            [
+                'Samsung 970 EVO SSD',
+                'SSD',
+                'Samsung',
+                'MZ-V7E500BW',
+                '2018-04-24',
+                'A fast NVMe M.2 SSD with 500GB storage.',
+                88,
+                79.99,
+                0.02,
+                5.7,
+                0.08,
+                0.022,
+                0.0023,
+                5
+            ],
+            [
+                'Corsair Vengeance LPX 16GB',
+                'RAM',
+                'Corsair',
+                'CMK16GX4M2B3200C16',
+                '2015-08-10',
+                'A DDR4 memory kit operating at 3200MHz.',
+                85,
+                69.99,
+                0.03,
+                1.2,
+                0.137,
+                0.03,
+                0.007,
+                7
+            ],
+            [
+                'ASUS ROG Strix B550-F',
+                'Motherboard',
+                'ASUS',
+                '90MB14F0-M0EAY0',
+                '2020-06-16',
+                'A high-end motherboard with PCIe 4.0 support.',
+                87,
+                189.99,
+                0.03,
+                0.0,
+                0.305,
+                0.244,
+                0.005,
+                5
+            ],
+            [
+                'EVGA SuperNOVA 750 G5',
+                'PSU',
+                'EVGA',
+                '220-G5-0750-X1',
+                '2019-06-05',
+                'A 750W power supply with 80 Plus Gold certification.',
+                90,
+                129.99,
+                0.03,
+                750.0,
+                0.15,
+                0.15,
+                0.085,
+                7
+            ],
+            [
+                'NZXT H510',
+                'Case',
+                'NZXT',
+                'CA-H510B-W1',
+                '2019-08-01',
+                'A compact ATX case with a tempered glass side panel.',
+                85,
+                69.99,
+                0.03,
+                0.0,
+                0.428,
+                0.210,
+                0.460,
+                5
+            ],
+            // fakerのダミーデータを10000件生成
+            ...array_map(function () {
+                return [
+                    \Faker\Factory::create()->name,
+                    \Faker\Factory::create()->randomElement(['CPU', 'GPU', 'SSD', 'RAM', 'Motherboard', 'PSU', 'Case']),
+                    \Faker\Factory::create()->company,
+                    \Faker\Factory::create()->bothify('??????????'),
+                    \Faker\Factory::create()->date,
+                    \Faker\Factory::create()->text,
+                    \Faker\Factory::create()->numberBetween(0, 100),
+                    \Faker\Factory::create()->randomFloat(2, 0, 1000),
+                    \Faker\Factory::create()->randomFloat(2, 0, 1),
+                    \Faker\Factory::create()->randomFloat(2, 0, 1000),
+                    \Faker\Factory::create()->randomFloat(2, 0, 10),
+                    \Faker\Factory::create()->randomFloat(2, 0, 10),
+                    \Faker\Factory::create()->randomFloat(2, 0, 10),
+                    \Faker\Factory::create()->numberBetween(0, 10)
+                ];
+
+            }, range(0, 9999))
+        ];
+    }
+}
+
+```
+
+10000件のコンピュータのダミーデータが挿入された
+
+課題②: cars, car_partsテーブルのシーダーファイルを追加、code-genコマンド拡張
+
+![Untitled](%E4%BD%9C%E6%A5%AD%E3%83%AD%E3%82%AF%E3%82%99%EF%BC%9APJ5%20%E3%82%B5%E3%83%BC%E3%83%8F%E3%82%99%E3%81%A8%E3%83%86%E3%82%99%E3%83%BC%E3%82%BF%E5%B1%A4%20c2d7924ca566460d9e7debf223b036cd/Untitled%208.png)
+
+- テーブルをまだ作ってないのでマイグレーションファイルをいつも通り作成　省略
+- それぞれのシーダーファイルを作成　`seed`コマンド
+
+Database/Seeds/CarsSeeder.php
+
+```php
+<?php
+
+namespace Database\Seeds;
+
+use Database\AbstractSeeder;
+
+require_once 'vendor/autoload.php';
+
+class CarsSeeder extends AbstractSeeder
+{
+
+    protected ?string $tableName = 'cars';
+
+    protected array $tableColumns = [
+        [
+            "data_type" => "string",
+            "column_name" => "name"
+        ],
+        [
+            "data_type" => "string",
+            "column_name" => "make"
+        ],
+        [
+            "data_type" => "string",
+            "column_name" => "model"
+        ],
+        [
+            "data_type" => "int",
+            "column_name" => "year"
+        ],
+        [
+            "data_type" => "string",
+            "column_name" => "color"
+        ],
+        [
+            "data_type" => "float",
+            "column_name" => "price"
+        ],
+        [
+            "data_type" => "float",
+            "column_name" => "mileage"
+        ],
+        [
+            "data_type" => "string",
+            "column_name" => "transmission"
+        ],
+        [
+            "data_type" => "string",
+            "column_name" => "engine"
+        ],
+        [
+            "data_type" => "string",
+            "column_name" => "status"
+        ]
+    ];
+
+    public function createRowData(): array
+    {
+        return [
+            ...array_map(function () {
+                $makers = ['Toyota', 'Honda', 'Nissan', 'Mitsubishi', 'Subaru'];
+                $models_map = [
+                    'Toyota' => ['Prius', 'Corolla', 'Camry', 'RAV4', 'Highlander'],
+                    'Honda' => ['Civic', 'Accord', 'CR-V', 'Pilot', 'Odyssey'],
+                    'Nissan' => ['Sentra', 'Altima', 'Maxima', 'Rogue', 'Pathfinder'],
+                    'Mitsubishi' => ['Mirage', 'Lancer', 'Outlander', 'Eclipse Cross', 'Pajero'],
+                    'Subaru' => ['Impreza', 'Legacy', 'Forester', 'Outback', 'Ascent']
+                ];
+
+                return [
+                    \Faker\Factory::create()->randomElement($makers),
+                    \Faker\Factory::create()->randomElement($models_map[$makers[0]]),
+                    \Faker\Factory::create()->year(),
+                    \Faker\Factory::create()->colorName(),
+                    \Faker\Factory::create()->randomFloat(2, 10000, 50000),
+                    \Faker\Factory::create()->randomFloat(2, 0, 200000),
+                    \Faker\Factory::create()->randomElement(['Automatic', 'Manual']),
+                    \Faker\Factory::create()->randomElement(['V6', 'V8', 'V12']),
+                    \Faker\Factory::create()->randomElement(['New', 'Used'])
+                ];
+            }, range(0, 999))
+        ];
+    }
+}
+
+```
+
+先にcarsテーブルにデータを挿入
+
+`php console seed`
+
+Database/Seeds/CarPartsSeeder.php
+
+```php
+<?php
+
+namespace Database\Seeds;
+
+use Database\AbstractSeeder;
+
+require_once 'vendor/autoload.php';
+
+class CarPartsSeeder extends AbstractSeeder
+{
+
+    protected ?string $tableName = 'car_parts';
+
+    protected array $tableColumns = [
+        [
+            'data_type' => 'int',
+            'column_name' => 'car_id'
+        ],
+        [
+            'data_type' => 'string',
+            'column_name' => 'name'
+        ],
+        [
+            'data_type' => 'string',
+            'column_name' => 'description'
+        ],
+        [
+            'data_type' => 'float',
+            'column_name' => 'price'
+        ],
+        [
+            'data_type' => 'int',
+            'column_name' => 'quantity_in_stock'
+        ]
+    ];
+
+    public function createRowData(): array
+    {
+        return [
+            ...array_map(function () {
+                $parts = ['Tires', 'Suspension', 'Brakes', 'Wheels', 'Exhaust'];
+                $descriptions_map = [
+                    'Suspension' => 'A system of springs, shock absorbers, and linkages that connect a vehicle to its wheels',
+                    'Brakes' => 'A device for slowing or stopping a moving vehicle, typically by applying pressure to the wheels',
+                    'Tires' => 'A rubber covering, typically inflated or surrounding an inflated inner tube, placed around a wheel to form a flexible contact with the road',
+                    'Wheels' => 'A circular object that revolves on an axle and is fixed below a vehicle or other object to enable it to move easily over the ground',
+                    'Exhaust' => 'A pipe or duct that carries away waste gases and air from a combustion engine'
+                ];
+                $max_car_id = 100;
+
+                return [
+                    rand(1, $max_car_id),
+                    \Faker\Factory::create()->randomElement($parts),
+                    \Faker\Factory::create()->randomElement($descriptions_map),
+                    \Faker\Factory::create()->randomFloat(2, 100, 1000),
+                    \Faker\Factory::create()->randomNumber(2)
+                ];
+            }, range(0, 9999))
+        ];
+    }
+}
+```
+
+1 ~ 100番目の車に対するパーツをランダムに挿入
+
+`php console seed`
+
+課題③：created_at, updated_atカラムを追加
+
+- CURRENT_TIMESTAMPではなくCarbonライブラリを使用
+- Carbon::now()でCarbonインスタンスを返す
+
+- `composer require nesbot/carbon`　インストール
+- カラムをマイグレーションファイルに追加して再度`php console migrate` （省略）　型はTIMESTAMP
+- AbstractSeederクラスのほうで、created_at, updated_atカラムとそれらに対応するプレースホルダー文字列を追加
+
+Database/AbstractSeeder.php
+
+```php
+<?php
+namespace Database;
+
+require_once 'vendor/autoload.php';
+
+use Database\MySQLWrapper;
+use Carbon\Carbon;
+
+abstract class AbstractSeeder implements Seeder
+{
+    protected MySQLWrapper $conn;
+    protected ?string $tableName = null;
+
+    // テーブルカラムは、'data_type' と 'column_name' を含む連想配列の配列。
+    protected array $tableColumns = [];
+
+    // キーはデータ型の文字列で、値はbind_paramの文字列
+    const AVAILABLE_TYPES = [
+        'int' => 'i',
+        // PHPのfloatはdouble型の精度
+        'float' => 'd',
+        'string' => 's',
+    ];
+
+    public function __construct(MySQLWrapper $conn)
+    {
+        $this->conn = $conn;
+    }
+
+    public function seed(): void
+    {
+        // データを作成
+        $data = $this->createRowData();
+
+        if ($this->tableName === null)
+            throw new \Exception('Class requires a table name');
+        if (empty($this->tableColumns))
+            throw new \Exception('Class requires a columns');
+
+        foreach ($data as $row) {
+            // 行を検証
+            $this->validateRow($row);
+            $this->insertRow($row);
+        }
+    }
+
+    // 各行をtableColumnsと照らし合わせて検証する関数
+    protected function validateRow(array $row): void
+    {
+        echo count($row) . PHP_EOL;
+        echo count($this->tableColumns) . PHP_EOL;
+        if (count($row) !== count($this->tableColumns))
+            throw new \Exception('Row does not match the ' . $this->tableName . ' table columns.');
+
+        foreach ($row as $i => $value) {
+            $columnDataType = $this->tableColumns[$i]['data_type'];
+            $columnName = $this->tableColumns[$i]['column_name'];
+
+            if (!isset(static::AVAILABLE_TYPES[$columnDataType]))
+                throw new \InvalidArgumentException(sprintf("The data type %s is not an available data type.", $columnDataType));
+
+            // 値のデータタイプを返すget_debug_type()とgettype()がある
+            // https://www.php.net/manual/en/function.get-debug-type.php 
+            // get_debug_type ... ネイティブPHP8のタイプを返す。 (floatsのgettype()の場合は'float'ではなく、'double'を返す)
+            if (get_debug_type($value) !== $columnDataType)
+                throw new \InvalidArgumentException(sprintf("Value for %s should be of type %s. Here is the current value: %s", $columnName, $columnDataType, json_encode($value)));
+        }
+    }
+
+    // 各行を挿入する関数
+    protected function insertRow(array $row): void
+    {
+        // カラム名を取得
+        $columnNames = array_map(function ($columnInfo) {
+            return $columnInfo['column_name'];
+        }, $this->tableColumns);
+        // created_atとupdated_atカラムを追加
+        $columnNames = array_merge($columnNames, ['created_at', 'updated_at']);
+
+        // プレースホルダーの?はcount($row) - 1回繰り返され、最後の?の後にはカンマをつけない
+        // そこにbind_paramで値を挿入する
+        $placeholders = str_repeat('?,', count($columnNames) - 1) . '?';
+
+        $now = Carbon::now();
+        $sql = sprintf(
+            'INSERT INTO %s (%s) VALUES (%s)',
+            $this->tableName,
+            implode(', ', $columnNames),
+            $placeholders
+        );
+
+        // prepare()はSQLステートメントを準備し、ステートメントオブジェクトを返す
+        $stmt = $this->conn->prepare($sql);
+
+        // データ型配列を結合して文字列にする
+        $dataTypes = implode(array_map(function ($columnInfo) {
+            return static::AVAILABLE_TYPES[$columnInfo['data_type']];
+        }, $this->tableColumns));
+        // created_atとupdated_atのデータ型を追加
+        $dataTypes .= 'ss';
+
+        // 文字の配列（文字列）を取り、それぞれに行の値を挿入する
+        // 例：$stmt->bind_param('iss', ...array_values([1, 'John', 'john@example.com'])) は、ステートメントに整数(i)、文字列(s)、文字列(s)を挿入する
+        $row_values = array_merge(array_values($row), [$now, $now]);
+        $stmt->bind_param($dataTypes, ...$row_values);
+
+        $stmt->execute();
+    }
+}
+```
+
+- php console seed
+
+Carbon::now()のままでも、bind_param()での型をsにすることで、作成時のタイムスタンプが挿入された
+
+---
+
+ルーティング
+
+リクエスト取得先へのエンドポイント
+
+- /random/part … コンピュータパーツをランダムに取得
+- /parts?id={id} … 特定のidのパーツを取得
+- types?type={type}&page={page}&perpage={count} … ページネーションの特定ページの指定されたタイプのパーツをランダムに取得
+- /random/computer … ランダムにパーツを取得して、ランダムなコンピュータデータを生成
+
+Routers/routes.php
+
+```php
+<?php
+
+return [
+    'random/part' => 'random-part',
+    'parts' => 'parts',
+];
+```
+
+random-partページ
+
+Views/random-part.php
+
+```php
+<?php
+
+use Database\MySQLWrapper;
+
+$db = new MySQLWrapper();
+
+try {
+    // ユーザー入力は関わらないので、SQLインジェクションの対策は不要だが、一貫性のためにprepareを使う
+    // ランダムに1つのパーツを取得
+    $stmt = $db->prepare("SELECT * FROM computer_parts ORDER BY RAND() LIMIT 1");
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $part = $result->fetch_assoc();
+} catch (Exception $e) {
+    die("Error fetching random part: " . $e->getMessage());
+}
+
+if (!$part) {
+    echo "No part found!";
+    exit;
+}
+
+// TODO: 上記のロジックをViewから分離
+
+// パーツをカード表示
+// htmlspecialchar ... 特殊文字をHTMLエンティティに変換する
+?>
+<div class="card" style="width: 18rem;">
+    <div class="card-body">
+        <h5 class="card-title">
+            <?= htmlspecialchars($part['name']) ?>
+        </h5>
+        <h6 class="card-subtitle mb-2 text-muted">
+            <?= htmlspecialchars($part['type']) ?> -
+            <?= htmlspecialchars($part['brand']) ?>
+        </h6>
+        <p class="card-text">
+            <strong>Model:</strong>
+            <?= htmlspecialchars($part['model_number']) ?><br />
+            <strong>Release Date:</strong>
+            <?= htmlspecialchars($part['release_date']) ?><br />
+            <strong>Description:</strong>
+            <?= htmlspecialchars($part['description']) ?><br />
+            <strong>Performance Score:</strong>
+            <?= htmlspecialchars($part['performance_score']) ?><br />
+            <strong>Market Price:</strong> $
+            <?= htmlspecialchars($part['market_price']) ?><br />
+            <strong>RSM:</strong> $
+            <?= htmlspecialchars($part['rsm']) ?><br />
+            <strong>Power Consumption:</strong>
+            <?= htmlspecialchars($part['power_consumptionw']) ?>W<br />
+            <strong>Dimensions:</strong>
+            <?= htmlspecialchars($part['lengthm']) ?>m x
+            <?= htmlspecialchars($part['widthm']) ?>m x
+            <?= htmlspecialchars($part['heightm']) ?>m<br />
+            <strong>Lifespan:</strong>
+            <?= htmlspecialchars($part['lifespan']) ?> years<br />
+        </p>
+        <p class="card-text"><small class="text-muted">Last updated on
+                <?= htmlspecialchars($part['updated_at']) ?>
+            </small></p>
+    </div>
+</div>
+```
+
+partページ(特定idのパーツ)
+
+Views/part.php
+
+```php
+<?php
+
+use Database\MySQLWrapper;
+
+// computer partのIDを取得・確認
+$id = $_GET['id'] ?? null;
+if (!$id) {
+    die("No ID provided for computer part");
+}
+
+// DB接続を初期化
+$db = new MySQLWrapper();
+
+try {
+    // 特定のidのパーツを取得
+    $stmt = $db->prepare("SELECT * FROM computer_parts WHERE id = ?");
+    // int型にidをバインド
+    $stmt->bind_param('i', $id);
+    // ステートメントを実行
+    $stmt->execute();
+    // 結果を取得し、該当項目を１行取得
+    $result = $stmt->get_result();
+    $part = $result->fetch_assoc();
+} catch (Exception $e) {
+    die("Error fetching part: " . $e->getMessage());
+}
+
+// TODO: 上記のロジックをViewから分離
+
+?>
+<div class="card" style="width: 18rem;">
+    <div class="card-body">
+        <h5 class="card-title">
+            <?= htmlspecialchars($part['name']) ?>
+        </h5>
+        <h6 class="card-subtitle mb-2 text-muted">
+            <?= htmlspecialchars($part['type']) ?> -
+            <?= htmlspecialchars($part['brand']) ?>
+        </h6>
+        <p class="card-text">
+            <strong>Model:</strong>
+            <?= htmlspecialchars($part['model_number']) ?><br />
+            <strong>Release Date:</strong>
+            <?= htmlspecialchars($part['release_date']) ?><br />
+            <strong>Description:</strong>
+            <?= htmlspecialchars($part['description']) ?><br />
+            <strong>Performance Score:</strong>
+            <?= htmlspecialchars($part['performance_score']) ?><br />
+            <strong>Market Price:</strong> $
+            <?= htmlspecialchars($part['market_price']) ?><br />
+            <strong>RSM:</strong> $
+            <?= htmlspecialchars($part['rsm']) ?><br />
+            <strong>Power Consumption:</strong>
+            <?= htmlspecialchars($part['power_consumptionw']) ?>W<br />
+            <strong>Dimensions:</strong>
+            <?= htmlspecialchars($part['lengthm']) ?>m x
+            <?= htmlspecialchars($part['widthm']) ?>m x
+            <?= htmlspecialchars($part['heightm']) ?>m<br />
+            <strong>Lifespan:</strong>
+            <?= htmlspecialchars($part['lifespan']) ?> years<br />
+        </p>
+        <p class="card-text"><small class="text-muted">Last updated on
+                <?= htmlspecialchars($part['updated_at']) ?>
+            </small></p>
+    </div>
+</div>
+```
+
+ヘッダーレイアウト
+
+```php
+<!doctype html>
+<html lang="en">
+<head>
+    <!-- Required meta tags -->
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous">
+
+    <title>My Computer Parts Store</title>
+</head>
+<body>
+<main class="container mt-5 mb-5">
+
+```
+
+フッターレイアウト
+
+```php
+</main> <!-- end of content -->
+
+<footer class="bg-light text-center text-lg-start">
+    <div class="text-center p-3" style="background-color: rgba(0, 0, 0, 0.2);">
+        © <?= date('Y') ?>:
+        <a class="text-dark" href="/">MyComputerPartsStore.com</a>
+    </div>
+</footer>
+
+</body>
+</html>
+
+```
+
+index.php
+
+```php
+<?php
+spl_autoload_extensions(".php");
+spl_autoload_register(function ($class) {
+    $namespace = explode('\\', $class);
+    $file = __DIR__ . '/' . implode('/', $namespace) . '.php';
+    if (file_exists($file)) {
+        require_once $file;
+    }
+});
+
+// ルートをロード
+$routes = include ('Routing/routes.php');
+
+// リクエストURIからパスを取得
+$path = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
+$path = ltrim($path, '/');
+
+// ルートパスの一致を確認
+if (isset($routes[$path])) {
+    $view = $routes[$path];
+    $viewPath = sprintf("%s/Views/%s.php", __DIR__, $view);
+
+    if (file_exists($viewPath)) {
+        // ヘッダーを設定
+        include 'Views/layout/header.php';
+        include $viewPath;
+        include 'Views/layout/footer.php';
+    } else {
+        http_response_code(500);
+        printf("<br>debug info:<br>%s<br>%s", "Internal error, please contact the admin.");
+    }
+} else {
+    // 一致するルートがない場合、404エラー
+    http_response_code(404);
+    echo "404 Not Found: The requested route was not found on this server.";
+    printf("<br>debug info:<br>%s<br>%s", json_encode($routes), $path);
+}
+
+```
+
+- indexを実行　`php -S [localhost:8000](http://localhost:8000) index.php`
+- [http://127.0.0.1:8000/random/part](http://127.0.0.1:8000/random/part)  ⇒ ランダムにコンピュータのパーツが１件表示される
+
+---
+
+クライアントサーバでのレンダリング
+
+- SSR（今まで）… サーバ側でコンテンツをすべて作成して、最終的なHTMLをクライアントに返す (例：pars.phpはサーバ側で処理され、クライアントに送り返す最終的なHTMLを作成する）
+- CSR … 表示するコンテンツや表示方法をクライアント側での処理により決定する　サーバ側で生成したコンテンツがあれば必要に応じてサーバにリクエストを送って取得する
+
+Response/HTTPRenderer.php
+
+```php
+<?php
+
+namespace Response;
+
+interface HTTPRenderer {
+    public function getFields(): array;
+    public function getContent(): string;
+}
+
+```
+
+HTMLのサーバサイドレンダラークラス
+
+Response/Render/HTMLRenderer.php
+
+```php
+<?php
+
+namespace Response\Render;
+
+use Response\HTTPRenderer;
+
+class HTMLRenderer implements HTTPRenderer
+{
+    private string $viewFile;
+    private array $data;
+
+    public function __construct(string $viewFile, array $data = [])
+    {
+        $this->viewFile = $viewFile;
+        $this->data = $data;
+    }
+
+    // レスポンスヘッダーを返す関数
+    public function getFields(): array
+    {
+        return [
+            'Content-Type' => 'text/html; charset=UTF-8',
+        ];
+    }
+
+    // レスポンスボディを返す関数
+    public function getContent(): string
+    {
+        $viewPath = $this->getViewPath($this->viewFile);
+
+        if (!file_exists($viewPath)) {
+            throw new \Exception("View file {$viewPath} does not exist.");
+        }
+
+        // ob_startはすべての出力をバッファに取り込みます。
+        // このバッファはob_get_cleanによって取得することができ、バッファの内容を返し、バッファをクリアします。
+        ob_start();
+        // extract関数は、キーを変数として現在のシンボルテーブルにインポートします
+        extract($this->data);
+        require $viewPath;
+        return $this->getHeader() . ob_get_clean() . $this->getFooter();
+    }
+
+    // ヘッダーレイアウトを取得する関数
+    private function getHeader(): string
+    {
+        ob_start();
+        require $this->getViewPath('layout/header');
+        return ob_get_clean();
+    }
+
+    // フッターレイアウトを取得する関数
+    private function getFooter(): string
+    {
+        ob_start();
+        require $this->getViewPath('layout/footer');
+        return ob_get_clean();
+    }
+
+    // ビューファイルのパスを取得する関数
+    private function getViewPath(string $path): string
+    {
+        return sprintf("%s/%s/Views/%s.php", __DIR__, '../..', $path);
+    }
+}
+
+```
+
+JSONレスポンスのレンダラークラス
+
+Response/Render/JSONRenderer.php
+
+```php
+<?php
+
+namespace Response\Render;
+
+use Response\HTTPRenderer;
+
+class JSONRenderer implements HTTPRenderer {
+    private array $data;
+
+    public function __construct(array $data) {
+        $this->data = $data;
+    }
+
+    public function getFields(): array {
+        return [
+            'Content-Type' => 'application/json; charset=UTF-8',
+        ];
+    }
+
+    public function getContent(): string {
+        return json_encode($this->data, JSON_THROW_ON_ERROR);
+    }
+}
+
+```
+
+- ルートパスをキーとしてHTTPRenderを返すコールバック関数を返すようにする
+- MVC
+- コールバック関数（Controller）を実行 ⇒ DB（Model）からデータ取得 ⇒ ユーザからの入力を検証 ⇒ HTTPRenderer（View）にデータを渡す
+
+Routing/routes.php
+
+```php
+<?php
+
+use Helpers\DatabaseHelper;
+use Helpers\ValidationHelper;
+use Response\HTTPRenderer;
+use Response\Render\HTMLRenderer;
+use Response\Render\JSONRenderer;
+
+return [
+    'random/part'=>function(): HTTPRenderer{
+        $part = DatabaseHelper::getRandomComputerPart();
+
+        return new HTMLRenderer('component/random-part', ['part'=>$part]);
+    },
+    'parts'=>function(): HTTPRenderer{
+        // IDの検証
+        $id = ValidationHelper::integer($_GET['id']??null);
+
+        $part = DatabaseHelper::getComputerPartById($id);
+        return new HTMLRenderer('component/parts', ['part'=>$part]);
+    },
+    'api/random/part'=>function(): HTTPRenderer{
+        $part = DatabaseHelper::getRandomComputerPart();
+        return new JSONRenderer(['part'=>$part]);
+    },
+    'api/parts'=>function(){
+        $id = ValidationHelper::integer($_GET['id']??null);
+        $part = DatabaseHelper::getComputerPartById($id);
+        return new JSONRenderer(['part'=>$part]);
+    },
+];
+
+```
+
+- index.phpでrendererを呼び出す
+
+index.php
+
+```php
+<?php
+spl_autoload_extensions(".php");
+spl_autoload_register(function ($class) {
+    $namespace = explode('\\', $class);
+    $file = __DIR__ . '/' . implode('/', $namespace) . '.php';
+    if (file_exists($file)) {
+        require_once $file;
+    }
+});
+
+// デバッグモードを設定
+$DEBUG = true;
+
+// ルートをロード
+$routes = include ('Routing/routes.php');
+
+// リクエストURIからパスを取得
+$path = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
+$path = ltrim($path, '/');
+
+// ルートパスの一致を確認
+if (isset($routes[$path])) {
+    // コールバックを呼び出してrendererを作成。
+    $renderer = $routes[$path]();
+
+    try {
+        // ヘッダーを設定
+        foreach ($renderer->getFields() as $name => $value) {
+            // ヘッダーに設定する値をサニタイズ
+            $sanitized_value = filter_var($value, FILTER_SANITIZE_STRING, FILTER_FLAG_NO_ENCODE_QUOTES);
+
+            // サニタイズされた値が元の値と一致する場合、ヘッダーを設定する
+            if ($sanitized_value && $sanitized_value === $value) {
+                header("{$name}: {$sanitized_value}");
+            } else {
+                // ヘッダー設定に失敗した場合、ログに記録するか処理する
+                // エラー処理によっては、例外をスローするか、デフォルトのまま続行できる
+                http_response_code(500);
+                if ($DEBUG)
+                    print ("Failed setting header - original: '$value', sanitized: '$sanitized_value'");
+                exit;
+            }
+
+            print ($renderer->getContent());
+        }
+    } catch (Exception $e) {
+        http_response_code(500);
+        print ("Internal error, please contact the admin.<br>");
+        if ($DEBUG)
+            print ($e->getMessage());
+    }
+} else {
+    // 一致するルートがない場合、404エラー
+    http_response_code(404);
+    echo "404 Not Found: The requested route was not found on this server.";
+}
+
+```
+
+DBデータ取得用のヘルパークラス
+
+Helpers/DatabaseHelper.php
+
+```php
+<?php
+
+namespace Helpers;
+
+use Database\MySQLWrapper;
+use Exception;
+
+class DatabaseHelper
+{
+    public static function getRandomComputerPart(): array{
+        $db = new MySQLWrapper();
+
+        $stmt = $db->prepare("SELECT * FROM computer_parts ORDER BY RAND() LIMIT 1");
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $part = $result->fetch_assoc();
+
+        if (!$part) throw new Exception('Could not find a single part in database');
+
+        return $part;
+    }
+
+    public static function getComputerPartById(int $id): array{
+        $db = new MySQLWrapper();
+
+        $stmt = $db->prepare("SELECT * FROM computer_parts WHERE id = ?");
+        $stmt->bind_param('i', $id);
+        $stmt->execute();
+
+        $result = $stmt->get_result();
+        $part = $result->fetch_assoc();
+
+        if (!$part) throw new Exception('Could not find a single part in database');
+
+        return $part;
+    }
+}
+
+```
+
+ユーザー入力検証用のヘルパークラス
+
+Helpers/ValidationHelper.php
+
+```php
+<?php
+
+namespace Helpers;
+
+class ValidationHelper
+{
+    public static function integer($value, float $min = -INF, float $max = INF): int
+    {
+        // 値が整数かどうかを検証
+        // filter_var()について ...  https://www.php.net/manual/en/filter.filters.validate.php
+        $value = filter_var($value, FILTER_VALIDATE_INT, ["min_range" => (int) $min, "max_range" => (int) $max]);
+
+        if ($value === false)
+            throw new \InvalidArgumentException("The provided value is not a valid integer.");
+
+        return $value;
+    }
+}
+
+```
+
+*ViewファイルをView/componentディレクトリに格納
+
+- サーバを立てて、[http://127.0.0.1:8000/parts?id=](http://127.0.0.1:8000/parts?id=1)34にアクセス
+- ３４番目のパーツが取得・表示された
+
+DB（M）、Renderer（V）、Routes（C）に処理の役割を分割できた
+
+- ブラウザ側でレンダリング（CSR）するHTML
+
+client.html
+
+```php
+<!doctype html>
+<html lang="en">
+
+<head>
+    <!-- Required meta tags -->
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet"
+        crossorigin="anonymous">
+
+    <title>My Computer Parts Store</title>
+</head>
+
+<body>
+
+    <main class="container mt-5 mb-5">
+        <!-- 内容はここに挿入されます。 -->
+        <div id="content"></div>
+    </main>
+
+    <footer class="bg-light text-center text-lg-start">
+        <div class="text-center p-3" style="background-color: rgba(0, 0, 0, 0.2);">
+            © 2023:
+            <a class="text-dark" href="/">MyComputerPartsStore.com</a>
+        </div>
+    </footer>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            // ロード時に、id1のパーツをGETリクエストで取得
+            fetch('http://127.0.0.1:8000/api/parts?id=1')
+                .then(response => response.json())
+                .then(data => {
+                    const part = data.part;
+                    const html = `
+                    <div class="card" style="width: 18rem;">
+                        <div class="card-body">
+                            <h5 class="card-title">${part.name}</h5>
+                            <h6 class="card-subtitle mb-2 text-muted">${part.type} - ${part.brand}</h6>
+                            <p class="card-text">
+                                <strong>Model:</strong> ${part.model_number}<br />
+                                <strong>Release Date:</strong> ${part.release_date}<br />
+                                <strong>Description:</strong> ${part.description}<br />
+                                <strong>Performance Score:</strong> ${part.performance_score}<br />
+                                <strong>Market Price:</strong> $${part.market_price}<br />
+                                <strong>RSM:</strong> $${part.rsm}<br />
+                                <strong>Power Consumption:</strong> ${part.power_consumptionw}W<br />
+                                <strong>Dimensions:</strong> ${part.lengthm}m x ${part.widthm}m x ${part.heightm}m<br />
+                                <strong>Lifespan:</strong> ${part.lifespan} years<br />
+                            </p>
+                            <p class="card-text"><small class="text-muted">Last updated on ${part.updated_at}</small></p>
+                        </div>
+                    </div>`;
+
+                    // カードHTMLをページに挿入
+                    document.getElementById('content').innerHTML = html;
+                })
+                .catch(error => {
+                    console.error('There was an error fetching the data:', error);
+                    document.getElementById('content').innerHTML = '<div class="alert alert-danger">An error occurred while fetching data.</div>';
+                });
+        });
+    </script>
+</body>
+
+</html>
+```
+
+- サーバのrootパスであるindex.php(localhost:8000)からclient.html(別のドメイン)にレスポンスを返す場合、異なるオリジン間の通信になる
+- ⇒ index.phpに異なるオリジン間の通信を許可する記述をする
+
+```php
+// あらゆるドメインからの通信を許可
+// * 本番環境では消して、アクセス可能なドメインは制限する
+header('Access-Control-Allow-Origin: *');
+
+```
+
+random/part, parts用のボタン追加
+
+client.html
+
+```php
+<!doctype html>
+<html lang="en">
+
+<head>
+    <!-- Required meta tags -->
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet"
+        crossorigin="anonymous">
+
+    <title>My Computer Parts Store</title>
+</head>
+
+<body>
+
+    <main class="container mt-5 mb-5">
+        <div class="d-flex justify-content-center my-3 buttons">
+            <div class="d-flex random-part px-3">
+                <button id="randomBtn" type="button" class="btn btn-secondary random-part-button">Get Random
+                    Part</button>
+            </div>
+            <div class="d-flex id-part">
+                <input type="text" id="partId" class="form-control" placeholder="Enter Part ID">
+                <button id="idBtn" type="button" class="btn btn-secondary id-part-button">Get Part from ID</button>
+            </div>
+        </div>
+        <!-- 内容はここに挿入されます。 -->
+        <div id="content"></div>
+    </main>
+
+    <footer class="bg-light text-center text-lg-start">
+        <div class="text-center p-3" style="background-color: rgba(0, 0, 0, 0.2)">
+            © 2023:
+            <a class="text-dark" href="/">MyComputerPartsStore.com</a>
+        </div>
+    </footer>
+
+    <script>
+        const partCard = (part) => {
+            return `
+                    <div class="card" style="width: 18rem">
+                        <div class="card-body">
+                            <h5 class="card-title">${part.name}</h5>
+                            <h6 class="card-subtitle mb-2 text-muted">${part.type} - ${part.brand}</h6>
+                            <p class="card-text">
+                                <strong>Model:</strong> ${part.model_number}<br />
+                                <strong>Release Date:</strong> ${part.release_date}<br />
+                                <strong>Description:</strong> ${part.description}<br />
+                                <strong>Performance Score:</strong> ${part.performance_score}<br />
+                                <strong>Market Price:</strong> $${part.market_price}<br />
+                                <strong>RSM:</strong> $${part.rsm}<br />
+                                <strong>Power Consumption:</strong> ${part.power_consumptionw}W<br />
+                                <strong>Dimensions:</strong> ${part.lengthm}m x ${part.widthm}m x ${part.heightm}m<br />
+                                <strong>Lifespan:</strong> ${part.lifespan} years<br />
+                            </p>
+                            <p class="card-text"><small class="text-muted">Last updated on ${part.updated_at}</small></p>
+                        </div>
+                    </div>
+            `
+        }
+
+        document.addEventListener('DOMContentLoaded', function () {
+            // ロード時に、id1のパーツをGETリクエストで取得
+            fetch('http://127.0.0.1:8000/api/parts?id=1')
+                .then(response => {
+                    console.log(response)
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok')
+                    }
+                    return response.json()
+
+                })
+                .then(data => {
+                    const part = data.part
+
+                    // カードHTMLをページに挿入
+                    document.getElementById('content').innerHTML = partCard(part)
+                })
+                .catch(error => {
+                    console.error('There was an error fetching the data:', error)
+                    document.getElementById('content').innerHTML = '<div class="alert alert-danger">An error occurred while fetching data.</div>'
+                })
+        })
+
+        // ランダムパーツボタンのクリックイベント
+        const randomPartButton = document.getElementById('randomBtn')
+        randomPartButton.addEventListener('click', () => {
+            const content = document.getElementById('content')
+            content.innerHTML = ''
+            fetch('http://127.0.0.1:8000/api/random/part')
+                .then(res => res.json())
+                .then(data => {
+                    const part = data.part
+                    content.innerHTML = partCard(part)
+                })
+                .catch(error => {
+                    console.error('There was an error fetching the data:', error)
+                    content.innerHTML = '<div class="alert alert-danger">An error occurred while fetching data.</div>'
+                })
+        })
+
+        // IDでパーツを取得するボタンのクリックイベント
+        const idPartButton = document.getElementById('idBtn')
+        idPartButton.addEventListener('click', () => {
+            const content = document.getElementById('content')
+            const partId = document.getElementById('partId').value
+            content.innerHTML = ''
+            fetch(`http://127.0.0.1:8000/api/parts?id=${partId}`)
+                .then(res => res.json())
+                .then(data => {
+                    const part = data.part
+                    content.innerHTML = partCard(part)
+                })
+                .catch(error => {
+                    console.error('There was an error fetching the data:', error)
+                    content.innerHTML = '<div class="alert alert-danger">An error occurred while fetching data.</div>'
+                })
+        })
+
+    </script>
+</body>
+
+</html>
+```
+
+URLバーに(apiじゃないほうの)パスを入力してパーツを表示する場合はHTTPRendererによって表示され、 
+
+client.htmlのボタンからパーツにアクセスする場合はJSONRendererを使ってJSONデータが取得され、client.htmlから表示する
+
+---
+
+エンドポイントを追加
+
+GET /types … 指定したカテゴリのコンピュータパーツのリストを取得
+
+- /types?type={type}&page={paginationPageCount}&perpage={countPerPage}
+- type: 取得するコンピュータパーツのカテゴリ
+- page: 取得する結果のページ番号
+- perpage: 1ページ当たりに表示するアイテム数
+
+ページネーションのオフセットを算出し、LIMIT {offset}, {count}でデータを指定する
+
+Router/routes.php
+
+```php
+    ...,
+    'api/types' => function () {
+        $type = $_GET['type'] ?? null;
+        $page = $_GET['page'] ?? 1;
+        $perpage = $_GET['perpage'] ?? 3;
+
+        $parts = DatabaseHelper::getComputerPartsByType($type, $page, $perpage);
+        return new JSONRenderer(['parts' => $parts]);
+    },
+
+```
+
+Helpers/DatabaseHelper.php
+
+```php
+    public static function getComputerPartsByType(string $type, int $page, int $perpage): array
+    {
+        $db = new MySQLWrapper();
+
+        // ページネーションのためのオフセットを計算
+        $offset = ($page - 1) * $perpage;
+        
+        $stmt = $db->prepare("SELECT * FROM computer_parts WHERE type = ? LIMIT ?, ?");
+        $stmt->bind_param('sii', $type, $offset, $perpage);
+        $stmt->execute();
+
+        $result = $stmt->get_result();
+        $parts = $result->fetch_all(MYSQLI_ASSOC);
+
+        if (!$parts)
+            throw new Exception('Could not find any parts in database');
+
+        return $parts;
+    }
+
+```
+
+client.html
+
+```php
+        // 特定カテゴリのパーツを取得するボタンのクリックイベント
+        const typePartsButton = document.getElementById('typeBtn')
+        typePartsButton.addEventListener('click', () => {
+            const content = document.getElementById('content')
+            const partType = document.getElementById('partType').value
+            const page = document.getElementById('page').value
+            const perpage = document.getElementById('perpage').value
+            content.innerHTML = ''
+            fetch(`http://127.0.0.1:8000/api/types?type=${partType}&page=${page}&perpage=${perpage}`)
+                .then(res => res.json())
+                .then(data => {
+                    const parts = data.parts
+                    parts.forEach(part => {
+                        content.innerHTML += partCard(part)
+                    })
+                })
+                .catch(error => {
+                    console.error('There was an error fetching the data:', error)
+                    content.innerHTML = '<div class="alert alert-danger">An error occurred while fetching data.</div>'
+                })
+        })
+
+```
+
+GET /random/computer … 複数のパーツからランダムにコンピュータを生成して取得
+
+- /random/computer
+
+GET /parts/newest … 最近追加されたパーツを取得
+
+- page
+- perpage
+- 例：/parts/newest?page=2&perpage=10
+
+GET /parts/performance … パフォーマンス順で上位/下位50位までのパーツを取得
+
+- order … 昇順/降順
+- type
+- 例: /parts/performance?order=desc&type=CPU
+
+Router/routes.php
+
+```php
+<?php
+
+use Helpers\DatabaseHelper;
+use Helpers\ValidationHelper;
+use Response\HTTPRenderer;
+use Response\Render\HTMLRenderer;
+use Response\Render\JSONRenderer;
+
+return [
+    'random/part' => function (): HTTPRenderer {
+        $part = DatabaseHelper::getRandomComputerPart();
+
+        return new HTMLRenderer('component/random-part', ['part' => $part]);
+    },
+    'parts' => function (): HTTPRenderer {
+        // IDの検証
+        $id = ValidationHelper::integer($_GET['id'] ?? null);
+
+        $part = DatabaseHelper::getComputerPartById($id);
+        return new HTMLRenderer('component/parts', ['part' => $part]);
+    },
+    'types' => function (): HTTPRenderer {
+        $type = $_GET['type'] ?? null;
+        $page = $_GET['page'] ?? 1;
+        $perpage = $_GET['perpage'] ?? 3;
+
+        $parts = DatabaseHelper::getComputerPartsByType($type, $page, $perpage);
+        return new HTMLRenderer('component/parts-list', ['parts' => $parts]);
+    },
+    'random/computer' => function (): HTTPRenderer {
+        $parts = DatabaseHelper::getRandomComputer();
+        return new HTMLRenderer('component/computer', ['parts' => $parts]);
+    },
+    'parts/newest' => function (): HTTPRenderer {
+        $page = $_GET['page'] ?? 1;
+        $perpage = $_GET['perpage'] ?? 3;
+
+        $parts = DatabaseHelper::getNewestComputerParts($page, $perpage);
+        return new HTMLRenderer('component/parts-list', ['parts' => $parts]);
+    },
+    'parts/performance' => function (): HTTPRenderer {
+        $order = $_GET['order'] ?? 'asc';
+        $type = $_GET['type'] ?? null;
+
+        $parts = DatabaseHelper::getComputerPartsByPerformance($order, $type, $page, $perpage);
+        return new HTMLRenderer('component/parts-list', ['parts' => $parts]);
+    },
+    'api/random/part' => function (): HTTPRenderer {
+        $part = DatabaseHelper::getRandomComputerPart();
+        return new JSONRenderer(['part' => $part]);
+    },
+    'api/parts' => function () {
+        $id = ValidationHelper::integer($_GET['id'] ?? null);
+        $part = DatabaseHelper::getComputerPartById($id);
+        return new JSONRenderer(['part' => $part]);
+    },
+    'api/types' => function () {
+        $type = $_GET['type'] ?? null;
+        $page = $_GET['page'] ?? 1;
+        $perpage = $_GET['perpage'] ?? 3;
+
+        $parts = DatabaseHelper::getComputerPartsByType($type, $page, $perpage);
+        return new JSONRenderer(['parts' => $parts]);
+    },
+    'api/random/computer' => function (){
+        $parts = DatabaseHelper::getRandomComputer();
+        return new JSONRenderer(['parts' => $parts]);
+    },
+    'api/parts/newest' => function () {
+        $page = $_GET['page'] ?? 1;
+        $perpage = $_GET['perpage'] ?? 3;
+
+        $parts = DatabaseHelper::getNewestComputerParts($page, $perpage);
+        return new JSONRenderer(['parts' => $parts]);
+    },
+    'api/parts/performance' => function () {
+        $order = $_GET['order'] ?? 'asc';
+        $type = $_GET['type'] ?? null;
+
+        $parts = DatabaseHelper::getComputerPartsByPerformance($order, $type);
+        return new JSONRenderer(['parts' => $parts]);
+    },
+];
+
+```
+
+Helpers/DatabaseHelper.php
+
+```php
+<?php
+
+namespace Helpers;
+
+use Database\MySQLWrapper;
+use Exception;
+
+class DatabaseHelper
+{
+    public static function getRandomComputerPart(): array
+    {
+        $db = new MySQLWrapper();
+
+        $stmt = $db->prepare("SELECT * FROM computer_parts ORDER BY RAND() LIMIT 1");
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $part = $result->fetch_assoc();
+
+        if (!$part)
+            throw new Exception('Could not find a single part in database');
+
+        return $part;
+    }
+
+    public static function getComputerPartById(int $id): array
+    {
+        $db = new MySQLWrapper();
+
+        $stmt = $db->prepare("SELECT * FROM computer_parts WHERE id = ?");
+        $stmt->bind_param('i', $id);
+        $stmt->execute();
+
+        $result = $stmt->get_result();
+        $part = $result->fetch_assoc();
+
+        if (!$part)
+            throw new Exception('Could not find a single part in database');
+
+        return $part;
+    }
+
+    public static function getComputerPartsByType(string $type, int $page, int $perpage): array
+    {
+        $db = new MySQLWrapper();
+
+        // ページネーションのためのオフセットを計算
+        $offset = ($page - 1) * $perpage;
+        
+        $stmt = $db->prepare("SELECT * FROM computer_parts WHERE type = ? LIMIT ?, ?");
+        $stmt->bind_param('sii', $type, $offset, $perpage);
+        $stmt->execute();
+
+        $result = $stmt->get_result();
+        $parts = $result->fetch_all(MYSQLI_ASSOC);
+
+        if (!$parts)
+            throw new Exception('Could not find any parts in database');
+
+        return $parts;
+    }
+
+    public static function getRandomComputer(): array {
+        $db = new MySQLWrapper();
+
+        $parts = [
+            'SELECT * FROM computer_parts WHERE type = "CPU" ORDER BY RAND() LIMIT 1',
+            'SELECT * FROM computer_parts WHERE type = "GPU" ORDER BY RAND() LIMIT 1',              
+            'SELECT * FROM computer_parts WHERE type = "SSD" ORDER BY RAND() LIMIT 1',
+            'SELECT * FROM computer_parts WHERE type = "RAM" ORDER BY RAND() LIMIT 1',
+            'SELECT * FROM computer_parts WHERE type = "Motherboard" ORDER BY RAND() LIMIT 1',
+            'SELECT * FROM computer_parts WHERE type = "PSU" ORDER BY RAND() LIMIT 1',
+            'SELECT * FROM computer_parts WHERE type = "Case" ORDER BY RAND() LIMIT 1'
+        ];
+
+        foreach ($parts as $key => $query) {
+            $stmt = $db->prepare($query);
+            $stmt->execute();
+            $result = $stmt->get_result();
+            $part = $result->fetch_assoc();
+            $parts[$key] = $part;
+        }
+
+        return $parts;
+    }
+
+    public static function getNewestComputerParts(int $page, int $perpage): array
+    {
+        $db = new MySQLWrapper();
+
+        $offset = ($page - 1) * $perpage;
+
+        // created_atで降順に並べ替え、ページネーションを適用
+        $stmt = $db->prepare("SELECT * FROM computer_parts ORDER BY created_at DESC LIMIT ?, ?");
+        $stmt->bind_param('ii', $offset, $perpage);
+        $stmt->execute();
+
+        $result = $stmt->get_result();
+        $parts = $result->fetch_all(MYSQLI_ASSOC);
+
+        if (!$parts)
+            throw new Exception('Could not find any parts in database');
+
+        return $parts;
+    }
+
+    public static function getComputerPartsByPerformance(string $order, string $type) {
+        $db = new MySQLWrapper();
+
+        $stmt = $order == 'asc' ?
+            $db->prepare("SELECT * FROM computer_parts WHERE type = ? ORDER BY performance_score ASC LIMIT 50") :
+            $db->prepare("SELECT * FROM computer_parts WHERE type = ? ORDER BY performance_score DESC LIMIT 50");
+        $stmt->bind_param('s', $type);
+        $stmt->execute();
+
+        $result = $stmt->get_result();
+        $parts = $result->fetch_all(MYSQLI_ASSOC);
+
+        if (!$parts)
+            throw new Exception('Could not find any parts in database');
+
+        return $parts;
+    }
+}
+
+```
+
+client.html
+
+```php
+<!doctype html>
+<html lang="en">
+
+<head>
+    <!-- Required meta tags -->
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet"
+        crossorigin="anonymous">
+
+    <title>My Computer Parts Store</title>
+</head>
+
+<body>
+
+    <main class="container mt-5 mb-5">
+        <div class="d-flex flex-column justify-content-center my-3 buttons">
+            <div class="d-flex random-part px-3">
+                <button id="randomBtn" type="button" class="btn btn-secondary random-part-button">Get Random
+                    Part</button>
+            </div>
+            <div class="d-flex id-part">
+                <input type="text" id="partId" class="form-control" placeholder="Enter Part ID">
+                <button id="idBtn" type="button" class="btn btn-secondary id-part-button">Get Part from ID</button>
+            </div>
+            <div class="d-flex type-parts">
+                <input type="text" id="partType" class="form-control" placeholder="Enter Part Type">
+                <input type="text" id="page" class="form-control" placeholder="Enter Page Number">
+                <input type="text" id="perpage" class="form-control" placeholder="Enter Item Counts per Page">
+                <button id="typeBtn" type="button" class="btn btn-secondary type-parts-button">Get Parts of a particular
+                    Type</button>
+            </div>
+            <div class="d-flex random-computer">
+                <button id="randomComputerBtn" type="button" class="btn btn-secondary random-computer-button">Get
+                    Today's Random Computer</button>
+            </div>
+            <div class="d-flex newest-parts">
+                <input type="text" id="page" class="form-control" placeholder="Enter Page Number">
+                <input type="text" id="perpage" class="form-control" placeholder="Enter Item Counts per Page">
+                <button id="newestBtn" type="button" class="btn btn-secondary newest-parts-button">Get Newest
+                    Parts</button>
+            </div>
+            <div class="d-flex performance-parts">
+                <div class="d-flex flex-column">
+                    <input type="radio" id="asc" name="performance" value="asc">
+                    <label for="asc">Ascending</label>
+                    <input type="radio" id="desc" name="performance" value="desc">
+                    <label for="desc">Descending</label>
+                </div>
+                <input type="text" id="type" class="form-control" placeholder="Enter Part Type">
+                <button id="performanceBtn" type="button" class="btn btn-secondary performance-parts-button">Get Parts
+                    by Performance</button>
+            </div>
+        </div>
+        <!-- 内容はここに挿入されます。 -->
+        <div id="content"></div>
+    </main>
+
+    <footer class="bg-light text-center text-lg-start">
+        <div class="text-center p-3" style="background-color: rgba(0, 0, 0, 0.2)">
+            © 2023:
+            <a class="text-dark" href="/">MyComputerPartsStore.com</a>
+        </div>
+    </footer>
+
+    <script>
+        const partCard = (part) => {
+            return `
+                    <div class="card" style="width: 18rem">
+                        <div class="card-body">
+                            <h5 class="card-title">${part.name}</h5>
+                            <h6 class="card-subtitle mb-2 text-muted">${part.type} - ${part.brand}</h6>
+                            <p class="card-text">
+                                <strong>Model:</strong> ${part.model_number}<br />
+                                <strong>Release Date:</strong> ${part.release_date}<br />
+                                <strong>Description:</strong> ${part.description}<br />
+                                <strong>Performance Score:</strong> ${part.performance_score}<br />
+                                <strong>Market Price:</strong> $${part.market_price}<br />
+                                <strong>RSM:</strong> $${part.rsm}<br />
+                                <strong>Power Consumption:</strong> ${part.power_consumptionw}W<br />
+                                <strong>Dimensions:</strong> ${part.lengthm}m x ${part.widthm}m x ${part.heightm}m<br />
+                                <strong>Lifespan:</strong> ${part.lifespan} years<br />
+                            </p>
+                            <p class="card-text"><small class="text-muted">Last updated on ${part.updated_at}</small></p>
+                        </div>
+                    </div>
+            `
+        }
+
+        document.addEventListener('DOMContentLoaded', function () {
+            // ロード時に、id1のパーツをGETリクエストで取得
+            fetch('http://127.0.0.1:8000/api/parts?id=1')
+                .then(response => {
+                    console.log(response)
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok')
+                    }
+                    return response.json()
+
+                })
+                .then(data => {
+                    const part = data.part
+
+                    // カードHTMLをページに挿入
+                    document.getElementById('content').innerHTML = partCard(part)
+                })
+                .catch(error => {
+                    console.error('There was an error fetching the data:', error)
+                    document.getElementById('content').innerHTML = '<div class="alert alert-danger">An error occurred while fetching data.</div>'
+                })
+        })
+
+        // ランダムパーツボタンのクリックイベント
+        const randomPartButton = document.getElementById('randomBtn')
+        randomPartButton.addEventListener('click', () => {
+            const content = document.getElementById('content')
+            content.innerHTML = ''
+            fetch('http://127.0.0.1:8000/api/random/part')
+                .then(res => res.json())
+                .then(data => {
+                    const part = data.part
+                    content.innerHTML = partCard(part)
+                })
+                .catch(error => {
+                    console.error('There was an error fetching the data:', error)
+                    content.innerHTML = '<div class="alert alert-danger">An error occurred while fetching data.</div>'
+                })
+        })
+
+        // IDでパーツを取得するボタンのクリックイベント
+        const idPartButton = document.getElementById('idBtn')
+        idPartButton.addEventListener('click', () => {
+            const content = document.getElementById('content')
+            const partId = document.getElementById('partId').value
+            content.innerHTML = ''
+            fetch(`http://127.0.0.1:8000/api/parts?id=${partId}`)
+                .then(res => res.json())
+                .then(data => {
+                    const part = data.part
+                    content.innerHTML = partCard(part)
+                })
+                .catch(error => {
+                    console.error('There was an error fetching the data:', error)
+                    content.innerHTML = '<div class="alert alert-danger">An error occurred while fetching data.</div>'
+                })
+        })
+
+        // 特定カテゴリのパーツを取得するボタンのクリックイベント
+        const typePartsButton = document.getElementById('typeBtn')
+        typePartsButton.addEventListener('click', () => {
+            const content = document.getElementById('content')
+            const partType = document.getElementById('partType').value
+            const page = document.getElementById('page').value
+            const perpage = document.getElementById('perpage').value
+            content.innerHTML = ''
+            fetch(`http://127.0.0.1:8000/api/types?type=${partType}&page=${page}&perpage=${perpage}`)
+                .then(res => res.json())
+                .then(data => {
+                    const parts = data.parts
+                    parts.forEach(part => {
+                        content.innerHTML += partCard(part)
+                    })
+                })
+                .catch(error => {
+                    console.error('There was an error fetching the data:', error)
+                    content.innerHTML = '<div class="alert alert-danger">An error occurred while fetching data.</div>'
+                })
+        })
+
+        // ランダムでコンピュータを取得するボタンのクリックイベント
+        const randomComputerButton = document.getElementById('randomComputerBtn')
+        randomComputerButton.addEventListener('click', () => {
+            const content = document.getElementById('content')
+            content.innerHTML = ''
+            fetch('http://127.0.0.1:8000/api/random/computer')
+                .then(res => res.json())
+                .then(data => {
+                    const parts = data.parts
+                    parts.forEach(part => {
+                        content.innerHTML += partCard(part)
+                    })
+                })
+                .catch(error => {
+                    console.error('There was an error fetching the data:', error)
+                    content.innerHTML = '<div class="alert alert-danger">An error occurred while fetching data.</div>'
+                })
+        })
+
+        // 最新のパーツを取得するボタンのクリックイベント
+        const newestPartsButton = document.getElementById('newestBtn')
+        newestPartsButton.addEventListener('click', () => {
+            const content = document.getElementById('content')
+            const page = document.getElementById('page').value
+            const perpage = document.getElementById('perpage').value
+            content.innerHTML = ''
+            fetch(`http://127.0.0.1:8000/api/parts/newest?page=${page}&perpage=${perpage}`)
+                .then(res => res.json())
+                .then(data => {
+                    const parts = data.parts
+                    parts.forEach(part => {
+                        content.innerHTML += partCard(part)
+                    })
+                })
+                .catch(error => {
+                    console.error('There was an error fetching the data:', error)
+                    content.innerHTML = '<div class="alert alert-danger">An error occurred while fetching data.</div>'
+                })
+        })
+
+        // パフォーマンス数値順でパーツを取得するボタンのクリックイベント
+        const performancePartsButton = document.getElementById('performanceBtn')
+        performancePartsButton.addEventListener('click', () => {
+            const content = document.getElementById('content')
+            const type = document.getElementById('type').value
+            const order = document.querySelector('input[name="performance"]:checked').value
+            content.innerHTML = ''
+            fetch(`http://127.0.0.1:8000/api/parts/performance?order=${order}&type=${type}`)
+                .then(res => res.json())
+                .then(data => {
+                    const parts = data.parts
+                    parts.forEach(part => {
+                        content.innerHTML += partCard(part)
+                    })
+                })
+                .catch(error => {
+                    console.error('There was an error fetching the data:', error)
+                    content.innerHTML = '<div class="alert alert-danger">An error occurred while fetching data.</div>'
+                })
+        })
+    </script>
+</body>
+
+</html>
+```
+
+---
+
+Text Snippet Share
