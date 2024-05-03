@@ -1,68 +1,10 @@
+# アプリ開発ログ：Text Snippet Sharing Service
+
 ## Text Snippet Sharing Service
 
 参考：[PASTEBIN](https://pastebin.com/D8EsgzNm)
 
-機能要件
-
-- スニペットのアップロード
-- [ ]  ブラウザ上にコードエディタがあり、そこからコード共有できる
-- [ ]  言語とそれに対する構文ハイライトを選択できる
-- [ ]  スニペット共有後、https://{domain}/{path}/{unique-string} のようなフォーマットで、スニペットにアクセスできるURLが生成される
-
-- スニペットの閲覧
-- [ ]  共有時に指定したものと同じ言語とハイライトになっている
-
-- 有効期限設定
-- [ ]  アクセス可能な期限を設定できる
-- [ ]  期限切れになったスニペットは自動的に削除され、Expired Snippetと表示される
-
-- ストレージ
-- [ ]  ユーザーからの入力が検証・サニタイズ（危険なコードを変換して無力化）されている
-- [ ]  SQLインジェクションを防ぐために、作成されたスニペットは保存される
-
-- フロントエンド
-- [ ]  使いやすい、見やすいUI
-- [ ]  スニペット共有時の専用URLを表示
-
-- エラーハンドリング
-- [ ]  サポートされていない文字や大量のコードに対してはエラーメッセージを表示させる
-
-技術要件
-
-- フロントエンド
-- [ ]  HTML/CSS
-- [ ]  Javascript
-- [ ]  Monaco Editor
-
-- バックエンド
-- [ ]  PHP
-- [ ]  (スニペットURL生成にhash()のような関数を使う）
-
-- データベース
-- [ ]  MySQL
-
-- ミドルウェア
-- [ ]  マイグレーション管理システムをPHPで作成
-- [ ]  mysqliから派生して、DBとのインタラクションのためのMySQLWrapperを作成
-
-非機能要件
-
-- デプロイ
-- [ ]  わかりやすいドメイン、サブドメインで公開
-- [ ]  常時利用可能で、サービスが使えない時間を極力減らす
-- [ ]  Gitコマンドでのリポジトリ同期のみでコードの更新が本番サイトに反映されるようにする
-
-- パフォーマンス
-- [ ]  スニペットを効率よく取得し、速く閲覧出来る
-- [ ]  読み込みが極端に遅くなることなく、速やかにハイライトが表示される
-
-- スケーラビリティ
-- [ ]  大量のスニペット共有に対してもスムーズに処理できる
-
-- セキュリティ
-- [ ]  https接続
-
-1. snippetsテーブル設計
+### snippetsテーブル設計
 
 title : string
 
@@ -78,7 +20,7 @@ updated_at : timestamp
 
 user_id(FK) : string (会員登録機能作らないなら必要ない）
 
-1. mysqliから派生して、DBと通信するためのクラスを作成
+### mysqliから派生して、DBと通信するためのクラスを作成
 
 Database/MySQLWrapper.php
 
@@ -88,7 +30,7 @@ Database/MySQLWrapper.php
 namespace Database;
 
 use mysqli;
-use Helpers\Settings;
+use Helpers\\Settings;
 
 class MySQLWrapper extends mysqli
 {
@@ -107,6 +49,7 @@ class MySQLWrapper extends mysqli
         return $this->query("SELECT database() AS the_db")->fetch_row()[0];
     }
 }
+
 ```
 
 DB設定用のヘルパークラス
@@ -118,7 +61,7 @@ Helpers/Settings.php
 
 namespace Helpers;
 
-use Exceptions\ReadAndParseEnvException;
+use Exceptions\\ReadAndParseEnvException;
 
 class Settings
 {
@@ -157,7 +100,7 @@ class ReadAndParseEnvException extends Exception
 
 ```
 
-1. timestamp付きでマイグレーションファイルを作成するためのコマンドを作成　code_gen
+### timestamp付きでマイグレーションファイルを作成するためのコマンドを作成　code_gen
 
 Commands/Command.php
 
@@ -186,6 +129,7 @@ interface Command
     // コマンドを実行
     public function execute(): int;
 }
+
 ```
 
 Commands/AbstractCommand.php
@@ -344,6 +288,7 @@ abstract class AbstractCommand implements Command
     public abstract static function getArgs(): array;
     public abstract function execute(): int;
 }
+
 ```
 
 Commands/Argument.php
@@ -411,6 +356,7 @@ class Argument
         return $this;
     }
 }
+
 ```
 
 code-genコマンド
@@ -422,10 +368,10 @@ Commands/Programs/CodeGeneration.php
 
 // コード生成のコマンド
 
-namespace Commands\Programs;
+namespace Commands\\Programs;
 
-use Commands\AbstractCommand;
-use Commands\Argument;
+use Commands\\AbstractCommand;
+use Commands\\Argument;
 
 class CodeGeneration extends AbstractCommand
 {
@@ -486,9 +432,9 @@ class CodeGeneration extends AbstractCommand
         return <<<MIGRATION
 <?php
 
-namespace Database\Migrations;
+namespace Database\\Migrations;
 
-use Database\SchemaMigration;
+use Database\\SchemaMigration;
 
 class {$className} implements SchemaMigration
 {
@@ -523,20 +469,20 @@ MIGRATION;
 
         $file_path = "Commands/Programs/" . $capitalized_name . ".php";
         $content = "<?php
-            namespace Commands\Programs;
-            
-            use Commands\AbstractCommand;
-            use Commands\Argument;
+            namespace Commands\\Programs;
+
+            use Commands\\AbstractCommand;
+            use Commands\\Argument;
 
             class $capitalized_name extends AbstractCommand
             {
-                protected static ?string \$alias = '$name';
+                protected static ?string \\$alias = '$name';
 
                 public static function getArgs(): array
                 {
 
                     return [
-                        " . implode(",\n", array_map(function ($arg) {
+                        " . implode(",\\n", array_map(function ($arg) {
             return "(new Argument('$arg'))->description('')->required(false)->allowAsShort(true)";
         }, $args)) . "
                     ];
@@ -554,7 +500,7 @@ MIGRATION;
         // registry.phpに新しいコマンドを追加
         $registry_path = "Commands/registry.php";
         $registry_content = file_get_contents($registry_path);
-        $registry_content = str_replace("return [", "return [\n    Commands\Programs\\$capitalized_name::class,", $registry_content);
+        $registry_content = str_replace("return [", "return [\\n    Commands\\Programs\\\\$capitalized_name::class,", $registry_content);
         file_put_contents($registry_path, $registry_content);
     }
 }
@@ -575,9 +521,10 @@ interface SchemaMigration
     public function up(): array;
     public function down(): array;
 }
+
 ```
 
-1. migrateコマンド、seedコマンドの作成
+### migrateコマンド、seedコマンドの作成
 
 Commands/Programs/Migrate.php
 
@@ -585,11 +532,11 @@ Commands/Programs/Migrate.php
 <?php
 
 // マイグレーションの実行、ロールバック、新しいスキーマインストールを行う
-namespace Commands\Programs;
+namespace Commands\\Programs;
 
-use Commands\AbstractCommand;
-use Commands\Argument;
-use Database\MySQLWrapper;
+use Commands\\AbstractCommand;
+use Commands\\Argument;
+use Database\\MySQLWrapper;
 
 class Migrate extends AbstractCommand
 {
@@ -641,7 +588,7 @@ class Migrate extends AbstractCommand
         ");
 
         if (!$result) {
-            throw new \Exception("マイグレーションテーブルの作成に失敗しました。");
+            throw new \\Exception("マイグレーションテーブルの作成に失敗しました。");
         }
 
         $this->log("マイグレーションテーブルの作成が完了しました。");
@@ -669,7 +616,7 @@ class Migrate extends AbstractCommand
             $this->log(sprintf("%sのマイグレーションを実行しています。", $migration_class));
             $queries = $migration->up();
             if (empty($queries)) {
-                throw new \Exception("マイグレーションファイルのクエリが空です。");
+                throw new \\Exception("マイグレーションファイルのクエリが空です。");
             }
 
             // クエリを実行
@@ -677,7 +624,7 @@ class Migrate extends AbstractCommand
             $this->insertMigration($filename);
         }
 
-        $this->log("マイグレーションが完了しました。\n");
+        $this->log("マイグレーションが完了しました。\\n");
     }
 
     // マイグレーションファイルからクラス名を取得する関数
@@ -690,10 +637,10 @@ class Migrate extends AbstractCommand
         // ^ ... 特定の文字以外
         // + ... 直前の文字が1文字以上
         // ([^_]+) ... アンダースコア以外の文字が1文字以上
-        if (preg_match('/([^_]+)\.php$/', $filename, $matches)) {
-            return sprintf("%s\%s", 'Database\Migrations', $matches[1]);
+        if (preg_match('/([^_]+)\\.php$/', $filename, $matches)) {
+            return sprintf("%s\\%s", 'Database\\Migrations', $matches[1]);
         } else {
-            throw new \Exception("クラス名の取得に失敗しました。");
+            throw new \\Exception("クラス名の取得に失敗しました。");
         }
     }
 
@@ -737,7 +684,7 @@ class Migrate extends AbstractCommand
         foreach ($queries as $query) {
             $result = $mysqli->query($query);
             if (!$result) {
-                throw new \Exception("クエリの実行に失敗しました。");
+                throw new \\Exception("クエリの実行に失敗しました。");
             } else {
                 $this->log("クエリの実行が完了しました。");
             }
@@ -750,7 +697,7 @@ class Migrate extends AbstractCommand
 
         $statement = $mysqli->prepare("INSERT INTO migrations (filename) VALUES (?)");
         if (!$statement) {
-            throw new \Exception("クエリの準備に失敗しました。");
+            throw new \\Exception("クエリの準備に失敗しました。");
         }
 
         // 準備されたクエリに実際のファイル名を挿入
@@ -758,7 +705,7 @@ class Migrate extends AbstractCommand
 
         // ステートメントの実行
         if (!$statement->execute()) {
-            throw new \Exception("クエリの実行に失敗しました。");
+            throw new \\Exception("クエリの実行に失敗しました。");
         }
 
         // ステートメントを閉じる
@@ -792,7 +739,7 @@ class Migrate extends AbstractCommand
 
             $queries = $migration->down();
             if (empty($queries)) {
-                throw new \Exception("マイグレーションファイルのクエリが空です。");
+                throw new \\Exception("マイグレーションファイルのクエリが空です。");
             }
 
             $this->processQueries($queries);
@@ -800,7 +747,7 @@ class Migrate extends AbstractCommand
             $count++;
         }
 
-        $this->log("ロールバックが完了しました。\n");
+        $this->log("ロールバックが完了しました。\\n");
     }
 
     private function removeMigration(string $filename): void
@@ -809,17 +756,18 @@ class Migrate extends AbstractCommand
         $statement = $mysqli->prepare("DELETE FROM migrations WHERE filename = ?");
 
         if (!$statement) {
-            throw new \Exception("クエリの準備に失敗しました。(" . $mysqli->errno . ")" . $mysqli->error);
+            throw new \\Exception("クエリの準備に失敗しました。(" . $mysqli->errno . ")" . $mysqli->error);
         }
 
         $statement->bind_param('s', $filename);
         if (!$statement->execute()) {
-            throw new \Exception("クエリの実行に失敗しました。(" . $mysqli->errno . ")" . $mysqli->error);
+            throw new \\Exception("クエリの実行に失敗しました。(" . $mysqli->errno . ")" . $mysqli->error);
         }
 
         $statement->close();
     }
 }
+
 ```
 
 Commands/Programs/Seed.php
@@ -827,11 +775,11 @@ Commands/Programs/Seed.php
 ```php
 <?php
 
-namespace Commands\Programs;
+namespace Commands\\Programs;
 
-use Commands\AbstractCommand;
-use Database\MySQLWrapper;
-use Database\Seeder;
+use Commands\\AbstractCommand;
+use Database\\MySQLWrapper;
+use Database\\Seeder;
 
 class Seed extends AbstractCommand
 {
@@ -859,7 +807,7 @@ class Seed extends AbstractCommand
         foreach ($files as $file) {
             if (pathinfo($file, PATHINFO_EXTENSION) === 'php') {
                 // クラス名をファイル名から取得
-                $class_name = 'Database\Seeds\\' . pathinfo($file, PATHINFO_FILENAME);
+                $class_name = 'Database\\Seeds\\\\' . pathinfo($file, PATHINFO_FILENAME);
 
                 // シードファイルを読み込む
                 include_once $directory_path . '/' . $file;
@@ -868,11 +816,12 @@ class Seed extends AbstractCommand
                     $seeder = new $class_name(new MySQLWrapper());
                     $seeder->seed();
                 } else
-                    throw new \Exception('Seeder must be a class that subclasses the seeder interface');
+                    throw new \\Exception('Seeder must be a class that subclasses the seeder interface');
             }
         }
     }
 }
+
 ```
 
 ダミーデータを挿入して確認するために、fakerを使う
@@ -887,6 +836,7 @@ composer.json
         "fakerphp/faker": "^1.15"
     }
 }
+
 ```
 
 タイムスタンプの型のためにcarbonを使う
@@ -919,8 +869,8 @@ namespace Database;
 
 require_once 'vendor/autoload.php';
 
-use Database\MySQLWrapper;
-use Carbon\Carbon;
+use Database\\MySQLWrapper;
+use Carbon\\Carbon;
 
 abstract class AbstractSeeder implements Seeder
 {
@@ -949,9 +899,9 @@ abstract class AbstractSeeder implements Seeder
         $data = $this->createRowData();
 
         if ($this->tableName === null)
-            throw new \Exception('Class requires a table name');
+            throw new \\Exception('Class requires a table name');
         if (empty($this->tableColumns))
-            throw new \Exception('Class requires a columns');
+            throw new \\Exception('Class requires a columns');
 
         foreach ($data as $row) {
             // 行を検証
@@ -966,20 +916,20 @@ abstract class AbstractSeeder implements Seeder
         echo count($row) . PHP_EOL;
         echo count($this->tableColumns) . PHP_EOL;
         if (count($row) !== count($this->tableColumns))
-            throw new \Exception('Row does not match the ' . $this->tableName . ' table columns.');
+            throw new \\Exception('Row does not match the ' . $this->tableName . ' table columns.');
 
         foreach ($row as $i => $value) {
             $columnDataType = $this->tableColumns[$i]['data_type'];
             $columnName = $this->tableColumns[$i]['column_name'];
 
             if (!isset(static::AVAILABLE_TYPES[$columnDataType]))
-                throw new \InvalidArgumentException(sprintf("The data type %s is not an available data type.", $columnDataType));
+                throw new \\InvalidArgumentException(sprintf("The data type %s is not an available data type.", $columnDataType));
 
             // 値のデータタイプを返すget_debug_type()とgettype()がある
-            // https://www.php.net/manual/en/function.get-debug-type.php 
+            // <https://www.php.net/manual/en/function.get-debug-type.php>
             // get_debug_type ... ネイティブPHP8のタイプを返す。 (floatsのgettype()の場合は'float'ではなく、'double'を返す)
             if (get_debug_type($value) !== $columnDataType)
-                throw new \InvalidArgumentException(sprintf("Value for %s should be of type %s. Here is the current value: %s", $columnName, $columnDataType, json_encode($value)));
+                throw new \\InvalidArgumentException(sprintf("Value for %s should be of type %s. Here is the current value: %s", $columnName, $columnDataType, json_encode($value)));
         }
     }
 
@@ -1023,6 +973,7 @@ abstract class AbstractSeeder implements Seeder
         $stmt->execute();
     }
 }
+
 ```
 
 Seedコマンド
@@ -1043,18 +994,16 @@ Commands/registry.php
 // コマンドを登録するためのレジストリ
 // consoleはここから読み取る
 return [
-    Commands\Programs\Touch::class,
-    Commands\Programs\Migrate::class,
-    Commands\Programs\CodeGeneration::class,
-    Commands\Programs\DBWipe::class,
-    Commands\Programs\BookSearch::class,
-    Commands\Programs\StateMigrate::class,
-    Commands\Programs\Seed::class,
+    Commands\\Programs\\Touch::class,
+    Commands\\Programs\\Migrate::class,
+    Commands\\Programs\\CodeGeneration::class,
+    Commands\\Programs\\DBWipe::class,
+    Commands\\Programs\\BookSearch::class,
+    Commands\\Programs\\StateMigrate::class,
+    Commands\\Programs\\Seed::class,
 ];
-```
 
-1. テーブルのマイグレーションファイル生成 ⇒ migrateコマンド実行
-2. 
+```
 
 issue作ってから設計等していく
 
