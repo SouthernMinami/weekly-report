@@ -1,6 +1,4 @@
-# アプリ開発ログ：Text Snippet Sharing Service
-
-## Text Snippet Sharing Service
+# アプリ開発ログ： スニペタ
 
 参考：[PASTEBIN](https://pastebin.com/D8EsgzNm)
 
